@@ -7,6 +7,7 @@ A unified project for controlling a premade Arduino-based robot through a compac
 This repository is designed to host:
 
 - A **Blazor Server** application (operator UI + local control backend)
+- A **Python** executable that will be the blockly workspace JSON to robot compatible instructions compiler
 - A **C++ Arduino** firmware project (robot runtime)
 - Shared protocol/docs for communication between app and robot
 
@@ -17,16 +18,22 @@ The main objective is to allow users to visually program robot behaviors using *
 ### 1) Visual Programming with Blockly
 - The Blazor Server app embeds Blockly for drag-and-drop robot programming.
 - Blockly blocks represent robot capabilities (movement, sensors, conditions, loops, actions).
-- Generated code/commands are translated into a robot-executable format handled by the Arduino firmware.
+- Generated code/commands are exported to JSON.
 
-### 2) Initial Robot Configuration via Bluetooth
+### 2) Python compiler
+- The python app should be able to take in a blockly workspace json.
+- It will find the code that actually runs and is used and compile that to opcode.
+- Verify it'll run and not break somehow.
+- Potentially even simulate the robot running.
+
+### 3) Initial Robot Configuration via Bluetooth
 - During onboarding, the app connects to the robot over **Bluetooth**.
 - Bluetooth is used for initial setup tasks such as:
   - device pairing
   - first-time configuration
   - provisioning Wi-Fi credentials
 
-### 3) Runtime Communication via Wi-Fi + MQTT
+### 4) Runtime Communication via Wi-Fi + MQTT
 - After initial Bluetooth setup, the robot joins the configured Wi-Fi network.
 - App-to-robot communication then transitions to **MQTT** over Wi-Fi.
 - The **MQTT broker runs natively inside the app** to keep deployment simple and lightweight.
@@ -42,6 +49,8 @@ robot-competition-booth/
 │  │  └─ RobotCompetition.App/
 │  ├─ firmware/               # Arduino C++ project(s)
 │  │  └─ robot-controller/
+|  ├─ compiler/               # Python blockly to opcode compiler
+|  |  └─ compiler.py
 │  └─ shared/                 # Shared protocol contracts/docs
 ├─ docs/
 │  ├─ architecture/
