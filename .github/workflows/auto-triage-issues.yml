@@ -20,13 +20,15 @@ jobs:
       - name: Triage issues and sync linked project
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PROJECTS_TOKEN || github.token }}
+          github-token: ${{ secrets.PROJECTS_TOKEN != '' && secrets.PROJECTS_TOKEN || github.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const repoFullName = `${owner}/${repo}`;
             const projectOwner = process.env.PROJECT_OWNER || owner;
+            const projectOwnerType = (process.env.PROJECT_OWNER_TYPE || context.payload.repository?.owner?.type || 'User').toLowerCase();
             const configuredProjectNumber = process.env.PROJECT_NUMBER || '';
+
             const log = {
               project: null,
               processed: [],
@@ -163,51 +165,38 @@ jobs:
               });
             }
 
+            function ownerQueryRoot() {
+              return projectOwnerType === 'organization' || projectOwnerType === 'org' ? 'organization' : 'user';
+            }
+
             async function getOwnerProjectByNumber(number) {
               const parsedNumber = Number(number);
               if (!Number.isInteger(parsedNumber)) throw new Error(`PROJECT_NUMBER must be an integer, got: ${number}`);
 
-              const userData = await github.graphql(`
+              const root = ownerQueryRoot();
+              const data = await github.graphql(`
                 query($login: String!, $number: Int!) {
-                  user(login: $login) {
+                  ${root}(login: $login) {
                     projectV2(number: $number) { ${projectSelection} }
                   }
                 }
               `, { login: projectOwner, number: parsedNumber });
-              if (userData.user?.projectV2) return userData.user.projectV2;
 
-              const orgData = await github.graphql(`
-                query($login: String!, $number: Int!) {
-                  organization(login: $login) {
-                    projectV2(number: $number) { ${projectSelection} }
-                  }
-                }
-              `, { login: projectOwner, number: parsedNumber });
-              if (orgData.organization?.projectV2) return orgData.organization.projectV2;
-
-              throw new Error(`Could not find Project #${number} owned by ${projectOwner}. Check PROJECT_OWNER, PROJECT_NUMBER, and token access.`);
+              const project = data[root]?.projectV2;
+              if (!project) throw new Error(`Could not find Project #${number} under ${root} ${projectOwner}. Check PROJECT_OWNER, PROJECT_OWNER_TYPE, PROJECT_NUMBER, and token access.`);
+              return project;
             }
 
             async function getOwnerProjects() {
-              const userData = await github.graphql(`
+              const root = ownerQueryRoot();
+              const data = await github.graphql(`
                 query($login: String!) {
-                  user(login: $login) {
+                  ${root}(login: $login) {
                     projectsV2(first: 20) { nodes { ${projectSelection} } }
                   }
                 }
               `, { login: projectOwner });
-              if (userData.user?.projectsV2?.nodes?.length) return userData.user.projectsV2.nodes;
-
-              const orgData = await github.graphql(`
-                query($login: String!) {
-                  organization(login: $login) {
-                    projectsV2(first: 20) { nodes { ${projectSelection} } }
-                  }
-                }
-              `, { login: projectOwner });
-              if (orgData.organization?.projectsV2?.nodes?.length) return orgData.organization.projectsV2.nodes;
-
-              return [];
+              return data[root]?.projectsV2?.nodes || [];
             }
 
             async function getLinkedProject() {
@@ -215,7 +204,7 @@ jobs:
 
               const projects = await getOwnerProjects();
               if (!projects.length) {
-                throw new Error(`No GitHub Projects are visible for owner ${projectOwner}. Set PROJECT_OWNER/PROJECT_NUMBER or check PROJECTS_TOKEN access.`);
+                throw new Error(`No GitHub Projects are visible for ${ownerQueryRoot()} ${projectOwner}. Set PROJECT_NUMBER or check PROJECTS_TOKEN access.`);
               }
 
               const matchingProject = projects.find(projectContainsRepo);
@@ -412,4 +401,5 @@ jobs:
             }
         env:
           PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+          PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
