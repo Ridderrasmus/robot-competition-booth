@@ -1,0 +1,451 @@
+name: Auto triage issues
+
+on:
+  issues:
+    types: [opened, edited, reopened, transferred, labeled, unlabeled]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  repository-projects: read
+
+jobs:
+  triage:
+    name: Label issues and sync project fields
+    runs-on: ubuntu-latest
+    steps:
+      - name: Triage issues and sync linked project
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN || github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const repoFullName = `${owner}/${repo}`;
+            const configuredProjectNumber = process.env.PROJECT_NUMBER || '';
+
+            const log = {
+              project: null,
+              processed: [],
+              labelsAdded: [],
+              fieldsUpdated: [],
+              skippedFields: [],
+              projectMismatches: []
+            };
+
+            function normalize(value) {
+              return String(value || '').trim().toLowerCase();
+            }
+
+            function includesAny(text, words) {
+              const haystack = normalize(text);
+              return words.some((word) => haystack.includes(normalize(word)));
+            }
+
+            function getIssueText(issue) {
+              return `${issue.title || ''}\n${issue.body || ''}`;
+            }
+
+            async function getExistingLabels() {
+              const labels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+                owner,
+                repo,
+                per_page: 100
+              });
+              return new Map(labels.map((label) => [normalize(label.name), label.name]));
+            }
+
+            function existingLabel(existingLabels, candidates) {
+              for (const candidate of candidates) {
+                const match = existingLabels.get(normalize(candidate));
+                if (match) return match;
+              }
+              return null;
+            }
+
+            function chooseLabels(issue, existingLabels) {
+              const text = getIssueText(issue);
+              const chosen = new Set();
+
+              const triage = existingLabel(existingLabels, ['needs-triage', 'triage']);
+              if (triage) chosen.add(triage);
+
+              if (includesAny(text, ['bug', 'broken', 'error', 'exception', 'crash', 'failed', 'failing', 'regression', 'does not work'])) {
+                const label = existingLabel(existingLabels, ['bug', 'type:bug', 'kind:bug']);
+                if (label) chosen.add(label);
+              } else if (includesAny(text, ['feature', 'enhancement', 'add support', 'new block', 'new capability', 'improve'])) {
+                const label = existingLabel(existingLabels, ['enhancement', 'feature', 'type:feature', 'type:enhancement']);
+                if (label) chosen.add(label);
+              } else if (includesAny(text, ['question', 'how do i', 'how should', 'clarify'])) {
+                const label = existingLabel(existingLabels, ['question', 'type:question']);
+                if (label) chosen.add(label);
+              }
+
+              const areaRules = [
+                [['readme', 'docs', 'documentation', 'architecture', 'challenge'], ['documentation', 'docs', 'area:docs']],
+                [['blazor', 'server app', 'operator ui', 'frontend', 'backend'], ['app', 'area:app']],
+                [['compiler', 'python', 'opcode', 'workspace json'], ['compiler', 'area:compiler']],
+                [['firmware', 'arduino', 'c++', 'controller'], ['firmware', 'area:firmware']],
+                [['blockly', 'block', 'visual programming'], ['blockly', 'area:blockly']],
+                [['bluetooth', 'wifi', 'wi-fi', 'mqtt', 'protocol'], ['communication', 'area:communication']]
+              ];
+
+              for (const [keywords, labels] of areaRules) {
+                if (includesAny(text, keywords)) {
+                  const label = existingLabel(existingLabels, labels);
+                  if (label) chosen.add(label);
+                  break;
+                }
+              }
+
+              return [...chosen].filter((label) => !issue.labels.some((current) => normalize(current.name) === normalize(label)));
+            }
+
+            function estimateIssue(issue) {
+              const text = getIssueText(issue);
+              const lower = normalize(text);
+              const explicit = lower.match(/(?:estimate|points?)\s*[:=]\s*(\d+(?:\.\d+)?)/);
+              if (explicit) return Number(explicit[1]);
+
+              if (includesAny(lower, ['typo', 'copy', 'readme', 'minor docs', 'small docs'])) return 1;
+              if (includesAny(lower, ['documentation', 'docs', 'cleanup', 'rename', 'small refactor'])) return 2;
+              if (includesAny(lower, ['architecture', 'bluetooth', 'mqtt', 'firmware', 'compiler', 'simulation', 'integration'])) return 5;
+              if (includesAny(lower, ['major', 'large', 'epic', 'full system', 'end-to-end'])) return 8;
+              return 3;
+            }
+
+            function priorityForIssue(issue) {
+              const text = getIssueText(issue);
+              if (includesAny(text, ['blocker', 'critical', 'urgent', 'security', 'safety', 'cannot run', 'crash', 'demo blocked', 'competition blocked'])) return 'high';
+              if (includesAny(text, ['typo', 'nice to have', 'cleanup', 'polish', 'low priority'])) return 'low';
+              return 'medium';
+            }
+
+            function sizeForEstimate(points) {
+              if (points <= 1) return 'xs';
+              if (points <= 2) return 's';
+              if (points <= 3) return 'm';
+              if (points <= 5) return 'l';
+              return 'xl';
+            }
+
+            function findField(project, names) {
+              const wanted = names.map(normalize);
+              return project.fields.nodes.find((field) => wanted.includes(normalize(field.name)));
+            }
+
+            function optionByPreference(field, preferences) {
+              if (!field || !field.options) return null;
+              const options = field.options;
+              for (const preferred of preferences) {
+                const exact = options.find((option) => normalize(option.name) === normalize(preferred));
+                if (exact) return exact;
+              }
+              for (const preferred of preferences) {
+                const partial = options.find((option) => normalize(option.name).includes(normalize(preferred)));
+                if (partial) return partial;
+              }
+              return null;
+            }
+
+            async function getLinkedProject() {
+              const data = await github.graphql(`
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 10) {
+                      nodes {
+                        id
+                        number
+                        title
+                        fields(first: 100) {
+                          nodes {
+                            __typename
+                            ... on ProjectV2Field {
+                              id
+                              name
+                              dataType
+                            }
+                            ... on ProjectV2SingleSelectField {
+                              id
+                              name
+                              dataType
+                              options {
+                                id
+                                name
+                              }
+                            }
+                            ... on ProjectV2IterationField {
+                              id
+                              name
+                              dataType
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, { owner, repo });
+
+              const projects = data.repository.projectsV2.nodes;
+              if (!projects.length) {
+                throw new Error(`No GitHub Projects are linked to ${repoFullName}. Link a project to the repo or set PROJECT_NUMBER to a linked project.`);
+              }
+
+              if (configuredProjectNumber) {
+                const project = projects.find((candidate) => String(candidate.number) === String(configuredProjectNumber));
+                if (!project) {
+                  throw new Error(`PROJECT_NUMBER=${configuredProjectNumber} was set, but that project is not linked to ${repoFullName}.`);
+                }
+                return project;
+              }
+
+              return projects[0];
+            }
+
+            async function getIssueProjectItem(issueNodeId, projectId) {
+              const data = await github.graphql(`
+                query($issueId: ID!) {
+                  node(id: $issueId) {
+                    ... on Issue {
+                      projectItems(first: 50) {
+                        nodes {
+                          id
+                          project {
+                            id
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, { issueId: issueNodeId });
+
+              return data.node.projectItems.nodes.find((item) => item.project.id === projectId) || null;
+            }
+
+            async function ensureIssueInProject(issue, project) {
+              let item = await getIssueProjectItem(issue.node_id, project.id);
+              if (item) return item;
+
+              try {
+                const result = await github.graphql(`
+                  mutation($projectId: ID!, $contentId: ID!) {
+                    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                      item {
+                        id
+                      }
+                    }
+                  }
+                `, { projectId: project.id, contentId: issue.node_id });
+                return result.addProjectV2ItemById.item;
+              } catch (error) {
+                if (!String(error.message || '').includes('already exists')) throw error;
+                item = await getIssueProjectItem(issue.node_id, project.id);
+                if (!item) throw error;
+                return item;
+              }
+            }
+
+            async function updateProjectField(project, itemId, field, value) {
+              if (!field || value == null) return false;
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: $value
+                  }) {
+                    projectV2Item {
+                      id
+                    }
+                  }
+                }
+              `, { projectId: project.id, itemId, fieldId: field.id, value });
+              return true;
+            }
+
+            async function setPriority(project, itemId, issue) {
+              const field = findField(project, ['Priority']);
+              if (!field) return log.skippedFields.push('Priority field not found');
+              if (!field.options) return log.skippedFields.push('Priority field is not single-select');
+
+              const priority = priorityForIssue(issue);
+              const option = optionByPreference(field, {
+                high: ['High', 'P0', 'P1', 'Critical', 'Urgent'],
+                medium: ['Medium', 'Normal', 'P2'],
+                low: ['Low', 'P3', 'P4', 'Backlog']
+              }[priority]);
+
+              if (!option) return log.skippedFields.push(`No Priority option matched ${priority}`);
+              await updateProjectField(project, itemId, field, { singleSelectOptionId: option.id });
+              log.fieldsUpdated.push(`Priority=${option.name}`);
+            }
+
+            async function setSize(project, itemId, estimate) {
+              const field = findField(project, ['Size']);
+              if (!field) return log.skippedFields.push('Size field not found');
+              if (!field.options) return log.skippedFields.push('Size field is not single-select');
+
+              const size = sizeForEstimate(estimate);
+              const option = optionByPreference(field, {
+                xs: ['XS', 'Extra small', 'Tiny', '1'],
+                s: ['S', 'Small', '2'],
+                m: ['M', 'Medium', '3'],
+                l: ['L', 'Large', '5'],
+                xl: ['XL', 'Extra large', '8', '13']
+              }[size]);
+
+              if (!option) return log.skippedFields.push(`No Size option matched ${size}`);
+              await updateProjectField(project, itemId, field, { singleSelectOptionId: option.id });
+              log.fieldsUpdated.push(`Size=${option.name}`);
+            }
+
+            async function setEstimate(project, itemId, estimate) {
+              const field = findField(project, ['Estimate', 'Estimation', 'Story points', 'Points']);
+              if (!field) return log.skippedFields.push('Estimate field not found');
+
+              if (field.dataType === 'NUMBER') {
+                await updateProjectField(project, itemId, field, { number: estimate });
+                log.fieldsUpdated.push(`Estimate=${estimate}`);
+                return;
+              }
+
+              if (field.dataType === 'TEXT') {
+                await updateProjectField(project, itemId, field, { text: String(estimate) });
+                log.fieldsUpdated.push(`Estimate=${estimate}`);
+                return;
+              }
+
+              if (field.options) {
+                const option = optionByPreference(field, [String(estimate), `${estimate} pt`, `${estimate} pts`, `${estimate} points`]);
+                if (!option) return log.skippedFields.push(`No Estimate option matched ${estimate}`);
+                await updateProjectField(project, itemId, field, { singleSelectOptionId: option.id });
+                log.fieldsUpdated.push(`Estimate=${option.name}`);
+                return;
+              }
+
+              log.skippedFields.push(`Estimate field has unsupported data type: ${field.dataType}`);
+            }
+
+            async function getRepoIssues() {
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner,
+                repo,
+                state: 'all',
+                per_page: 100
+              });
+              return issues.filter((issue) => !issue.pull_request);
+            }
+
+            async function getProjectItems(project) {
+              const items = [];
+              let after = null;
+              do {
+                const data = await github.graphql(`
+                  query($projectId: ID!, $after: String) {
+                    node(id: $projectId) {
+                      ... on ProjectV2 {
+                        items(first: 100, after: $after) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            content {
+                              __typename
+                              ... on Issue {
+                                id
+                                number
+                                url
+                                repository {
+                                  nameWithOwner
+                                }
+                              }
+                              ... on PullRequest {
+                                id
+                                number
+                                url
+                                repository {
+                                  nameWithOwner
+                                }
+                              }
+                              ... on DraftIssue {
+                                title
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `, { projectId: project.id, after });
+
+                const page = data.node.items;
+                items.push(...page.nodes);
+                after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+              } while (after);
+              return items;
+            }
+
+            async function processIssue(issue, existingLabels, project) {
+              const labelsToAdd = chooseLabels(issue, existingLabels);
+              if (labelsToAdd.length) {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  labels: labelsToAdd
+                });
+                log.labelsAdded.push(`#${issue.number}: ${labelsToAdd.join(', ')}`);
+              }
+
+              const item = await ensureIssueInProject(issue, project);
+              const estimate = estimateIssue(issue);
+              await setPriority(project, item.id, issue);
+              await setSize(project, item.id, estimate);
+              await setEstimate(project, item.id, estimate);
+              log.processed.push(`#${issue.number}`);
+            }
+
+            const existingLabels = await getExistingLabels();
+            const project = await getLinkedProject();
+            log.project = `${project.title} (#${project.number})`;
+
+            const issues = await getRepoIssues();
+            for (const issue of issues) {
+              await processIssue(issue, existingLabels, project);
+            }
+
+            const projectItems = await getProjectItems(project);
+            for (const item of projectItems) {
+              const content = item.content;
+              if (!content) continue;
+              if (content.__typename === 'Issue' && content.repository.nameWithOwner !== repoFullName) {
+                log.projectMismatches.push(`${content.url} belongs to ${content.repository.nameWithOwner}`);
+              }
+              if (content.__typename === 'DraftIssue') {
+                log.projectMismatches.push(`Draft issue "${content.title}" is not tied to ${repoFullName}`);
+              }
+            }
+
+            await core.summary
+              .addHeading('Auto triage summary')
+              .addRaw(`Project: ${log.project}\n\n`)
+              .addRaw(`Processed issues: ${log.processed.join(', ') || 'none'}\n\n`)
+              .addRaw(`Labels added:\n${log.labelsAdded.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
+              .addRaw(`Project fields updated:\n${log.fieldsUpdated.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
+              .addRaw(`Skipped fields:\n${[...new Set(log.skippedFields)].map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
+              .addRaw(`Project mismatches:\n${log.projectMismatches.map((entry) => `- ${entry}`).join('\n') || '- none'}\n`)
+              .write();
+
+            if (log.projectMismatches.length) {
+              core.setFailed(`Project contains issues or draft issues that are not tied to ${repoFullName}. See workflow summary.`);
+            }
+        env:
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
