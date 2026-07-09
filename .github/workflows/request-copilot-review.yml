@@ -1,0 +1,28 @@
+name: Request Copilot review
+
+on:
+  pull_request:
+    types: [review_requested]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  request-copilot-review:
+    name: Request Copilot as reviewer
+    runs-on: ubuntu-latest
+    if: >
+      github.event.pull_request.draft == false &&
+      !contains(toJson(github.event.pull_request.requested_reviewers), 'copilot-pull-request-reviewer')
+    steps:
+      - name: Request review from Copilot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+            -f reviewers[]='copilot-pull-request-reviewer[bot]'
