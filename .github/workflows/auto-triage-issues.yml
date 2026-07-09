@@ -34,6 +34,7 @@ jobs:
               processed: [],
               labelsAdded: [],
               fieldsUpdated: [],
+              fieldsPreserved: [],
               skippedFields: [],
               projectMismatches: []
             };
@@ -42,6 +43,12 @@ jobs:
             const includesAny = (text, words) => words.some((word) => normalize(text).includes(normalize(word)));
             const issueText = (issue) => `${issue.title || ''}\n${issue.body || ''}`;
 
+            const projectFieldSelection = `
+              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+              ... on ProjectV2IterationField { id name dataType }
+            `;
+
             const projectSelection = `
               id
               number
@@ -49,9 +56,7 @@ jobs:
               fields(first: 100) {
                 nodes {
                   __typename
-                  ... on ProjectV2Field { id name dataType }
-                  ... on ProjectV2SingleSelectField { id name dataType options { id name } }
-                  ... on ProjectV2IterationField { id name dataType }
+                  ${projectFieldSelection}
                 }
               }
               items(first: 100) {
@@ -246,6 +251,68 @@ jobs:
               }
             }
 
+            async function itemFieldValueNodes(itemId) {
+              const fieldSelection = `
+                field {
+                  __typename
+                  ${projectFieldSelection}
+                }
+              `;
+              const data = await github.graphql(`
+                query($itemId: ID!) {
+                  node(id: $itemId) {
+                    ... on ProjectV2Item {
+                      fieldValues(first: 100) {
+                        nodes {
+                          __typename
+                          ... on ProjectV2ItemFieldTextValue { text ${fieldSelection} }
+                          ... on ProjectV2ItemFieldNumberValue { number ${fieldSelection} }
+                          ... on ProjectV2ItemFieldDateValue { date ${fieldSelection} }
+                          ... on ProjectV2ItemFieldSingleSelectValue { name ${fieldSelection} }
+                          ... on ProjectV2ItemFieldIterationValue { title ${fieldSelection} }
+                          ... on ProjectV2ItemFieldLabelValue { labels(first: 1) { totalCount } ${fieldSelection} }
+                          ... on ProjectV2ItemFieldMilestoneValue { milestone { title } ${fieldSelection} }
+                          ... on ProjectV2ItemFieldRepositoryValue { repository { nameWithOwner } ${fieldSelection} }
+                          ... on ProjectV2ItemFieldUserValue { users(first: 1) { totalCount } ${fieldSelection} }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, { itemId });
+              return data.node?.fieldValues?.nodes || [];
+            }
+
+            function fieldValueHasMeaningfulValue(valueNode) {
+              switch (valueNode.__typename) {
+                case 'ProjectV2ItemFieldTextValue':
+                  return Boolean(String(valueNode.text || '').trim());
+                case 'ProjectV2ItemFieldNumberValue':
+                  return valueNode.number !== null && valueNode.number !== undefined;
+                case 'ProjectV2ItemFieldDateValue':
+                  return Boolean(valueNode.date);
+                case 'ProjectV2ItemFieldSingleSelectValue':
+                  return Boolean(valueNode.name);
+                case 'ProjectV2ItemFieldIterationValue':
+                  return Boolean(valueNode.title);
+                case 'ProjectV2ItemFieldLabelValue':
+                  return (valueNode.labels?.totalCount || 0) > 0;
+                case 'ProjectV2ItemFieldMilestoneValue':
+                  return Boolean(valueNode.milestone?.title);
+                case 'ProjectV2ItemFieldRepositoryValue':
+                  return Boolean(valueNode.repository?.nameWithOwner);
+                case 'ProjectV2ItemFieldUserValue':
+                  return (valueNode.users?.totalCount || 0) > 0;
+                default:
+                  return false;
+              }
+            }
+
+            async function fieldHasExistingValue(itemId, field) {
+              const values = await itemFieldValueNodes(itemId);
+              return values.some((valueNode) => valueNode.field?.id === field.id && fieldValueHasMeaningfulValue(valueNode));
+            }
+
             async function updateProjectField(project, itemId, field, value) {
               await github.graphql(`
                 mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
@@ -260,6 +327,7 @@ jobs:
               const field = findField(project, ['Priority']);
               if (!field) return log.skippedFields.push('Priority field not found');
               if (!field.options) return log.skippedFields.push('Priority field is not single-select');
+              if (await fieldHasExistingValue(itemId, field)) return log.fieldsPreserved.push('Priority');
 
               const priority = priorityForIssue(issue);
               const option = optionByPreference(field, {
@@ -277,6 +345,7 @@ jobs:
               const field = findField(project, ['Size']);
               if (!field) return log.skippedFields.push('Size field not found');
               if (!field.options) return log.skippedFields.push('Size field is not single-select');
+              if (await fieldHasExistingValue(itemId, field)) return log.fieldsPreserved.push('Size');
 
               const size = sizeForEstimate(estimate);
               const option = optionByPreference(field, {
@@ -295,6 +364,7 @@ jobs:
             async function setEstimate(project, itemId, estimate) {
               const field = findField(project, ['Estimate', 'Estimation', 'Story points', 'Points']);
               if (!field) return log.skippedFields.push('Estimate field not found');
+              if (await fieldHasExistingValue(itemId, field)) return log.fieldsPreserved.push(field.name);
 
               if (field.dataType === 'NUMBER') {
                 await updateProjectField(project, itemId, field, { number: estimate });
@@ -392,6 +462,7 @@ jobs:
               .addRaw(`Processed issues: ${log.processed.join(', ') || 'none'}\n\n`)
               .addRaw(`Labels added:\n${log.labelsAdded.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Project fields updated:\n${log.fieldsUpdated.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
+              .addRaw(`Project fields preserved:\n${log.fieldsPreserved.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Skipped fields:\n${[...new Set(log.skippedFields)].map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Project mismatches:\n${log.projectMismatches.map((entry) => `- ${entry}`).join('\n') || '- none'}\n`)
               .write();
