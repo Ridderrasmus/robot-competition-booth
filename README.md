@@ -53,6 +53,12 @@ robot-competition-booth/
 |  |  └─ compiler.py
 │  └─ shared/                 # Shared protocol contracts/docs
 ├─ docs/
+│  ├─ challenges/             # Each folder contains relevant files, documentation, etc. for each individual challenge
+|  |  ├─ challenge1/
+|  |  ├─ challenge2/
+|  |  ├─ challenge3/
+|  |  ├─ challenge4/
+|  |  └─ challenge5/
 │  ├─ architecture/
 │  ├─ communication/
 │  └─ blockly/
@@ -62,7 +68,7 @@ robot-competition-booth/
 
 ## Parts List
 
-> Start empty and grow over time.
+To be filled with data from [excel sheet]()
 
 - _No parts added yet._
 
