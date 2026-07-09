@@ -25,6 +25,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const repoFullName = `${owner}/${repo}`;
+            const projectOwner = process.env.PROJECT_OWNER || owner;
             const configuredProjectNumber = process.env.PROJECT_NUMBER || '';
             const log = {
               project: null,
@@ -38,6 +39,30 @@ jobs:
             const normalize = (value) => String(value || '').trim().toLowerCase();
             const includesAny = (text, words) => words.some((word) => normalize(text).includes(normalize(word)));
             const issueText = (issue) => `${issue.title || ''}\n${issue.body || ''}`;
+
+            const projectSelection = `
+              id
+              number
+              title
+              fields(first: 100) {
+                nodes {
+                  __typename
+                  ... on ProjectV2Field { id name dataType }
+                  ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+                  ... on ProjectV2IterationField { id name dataType }
+                }
+              }
+              items(first: 100) {
+                nodes {
+                  content {
+                    __typename
+                    ... on Issue { repository { nameWithOwner } }
+                    ... on PullRequest { repository { nameWithOwner } }
+                    ... on DraftIssue { title }
+                  }
+                }
+              }
+            `;
 
             async function getExistingLabels() {
               const labels = await github.paginate(github.rest.issues.listLabelsForRepo, { owner, repo, per_page: 100 });
@@ -131,36 +156,73 @@ jobs:
               return null;
             }
 
-            async function getLinkedProject() {
-              const data = await github.graphql(`
-                query($owner: String!, $repo: String!) {
-                  repository(owner: $owner, name: $repo) {
-                    projectsV2(first: 10) {
-                      nodes {
-                        id
-                        number
-                        title
-                        fields(first: 100) {
-                          nodes {
-                            __typename
-                            ... on ProjectV2Field { id name dataType }
-                            ... on ProjectV2SingleSelectField { id name dataType options { id name } }
-                            ... on ProjectV2IterationField { id name dataType }
-                          }
-                        }
-                      }
-                    }
+            function projectContainsRepo(project) {
+              return project.items.nodes.some((item) => {
+                const content = item.content;
+                return content && ['Issue', 'PullRequest'].includes(content.__typename) && content.repository?.nameWithOwner === repoFullName;
+              });
+            }
+
+            async function getOwnerProjectByNumber(number) {
+              const parsedNumber = Number(number);
+              if (!Number.isInteger(parsedNumber)) throw new Error(`PROJECT_NUMBER must be an integer, got: ${number}`);
+
+              const userData = await github.graphql(`
+                query($login: String!, $number: Int!) {
+                  user(login: $login) {
+                    projectV2(number: $number) { ${projectSelection} }
                   }
                 }
-              `, { owner, repo });
+              `, { login: projectOwner, number: parsedNumber });
+              if (userData.user?.projectV2) return userData.user.projectV2;
 
-              const projects = data.repository.projectsV2.nodes;
-              if (!projects.length) throw new Error(`No GitHub Projects are linked to ${repoFullName}.`);
-              if (!configuredProjectNumber) return projects[0];
+              const orgData = await github.graphql(`
+                query($login: String!, $number: Int!) {
+                  organization(login: $login) {
+                    projectV2(number: $number) { ${projectSelection} }
+                  }
+                }
+              `, { login: projectOwner, number: parsedNumber });
+              if (orgData.organization?.projectV2) return orgData.organization.projectV2;
 
-              const project = projects.find((candidate) => String(candidate.number) === String(configuredProjectNumber));
-              if (!project) throw new Error(`PROJECT_NUMBER=${configuredProjectNumber} is not linked to ${repoFullName}.`);
-              return project;
+              throw new Error(`Could not find Project #${number} owned by ${projectOwner}. Check PROJECT_OWNER, PROJECT_NUMBER, and token access.`);
+            }
+
+            async function getOwnerProjects() {
+              const userData = await github.graphql(`
+                query($login: String!) {
+                  user(login: $login) {
+                    projectsV2(first: 20) { nodes { ${projectSelection} } }
+                  }
+                }
+              `, { login: projectOwner });
+              if (userData.user?.projectsV2?.nodes?.length) return userData.user.projectsV2.nodes;
+
+              const orgData = await github.graphql(`
+                query($login: String!) {
+                  organization(login: $login) {
+                    projectsV2(first: 20) { nodes { ${projectSelection} } }
+                  }
+                }
+              `, { login: projectOwner });
+              if (orgData.organization?.projectsV2?.nodes?.length) return orgData.organization.projectsV2.nodes;
+
+              return [];
+            }
+
+            async function getLinkedProject() {
+              if (configuredProjectNumber) return getOwnerProjectByNumber(configuredProjectNumber);
+
+              const projects = await getOwnerProjects();
+              if (!projects.length) {
+                throw new Error(`No GitHub Projects are visible for owner ${projectOwner}. Set PROJECT_OWNER/PROJECT_NUMBER or check PROJECTS_TOKEN access.`);
+              }
+
+              const matchingProject = projects.find(projectContainsRepo);
+              if (matchingProject) return matchingProject;
+
+              const projectList = projects.map((project) => `#${project.number} ${project.title}`).join(', ');
+              throw new Error(`Found Projects for ${projectOwner}, but none of the first 20 currently contain an item from ${repoFullName}. Set repository variable PROJECT_NUMBER to the intended project. Visible projects: ${projectList}`);
             }
 
             async function getIssueProjectItem(issueNodeId, projectId) {
@@ -168,9 +230,7 @@ jobs:
                 query($issueId: ID!) {
                   node(id: $issueId) {
                     ... on Issue {
-                      projectItems(first: 50) {
-                        nodes { id project { id } }
-                      }
+                      projectItems(first: 50) { nodes { id project { id } } }
                     }
                   }
                 }
@@ -185,9 +245,7 @@ jobs:
               try {
                 const result = await github.graphql(`
                   mutation($projectId: ID!, $contentId: ID!) {
-                    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
-                      item { id }
-                    }
+                    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
                   }
                 `, { projectId: project.id, contentId: issue.node_id });
                 return result.addProjectV2ItemById.item;
@@ -353,4 +411,5 @@ jobs:
               core.setFailed(`Project contains issues or draft issues that are not tied to ${repoFullName}. See workflow summary.`);
             }
         env:
+          PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
