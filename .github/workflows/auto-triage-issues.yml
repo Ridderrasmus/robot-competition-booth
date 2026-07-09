@@ -16,6 +16,11 @@ jobs:
   triage:
     name: Label issues and sync project fields
     runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'issues' ||
+      github.event.issue.author_association == 'OWNER' ||
+      github.event.issue.author_association == 'MEMBER' ||
+      github.event.issue.author_association == 'COLLABORATOR'
     steps:
       - name: Triage issues and sync linked project
         uses: actions/github-script@v7
@@ -28,10 +33,12 @@ jobs:
             const projectOwner = process.env.PROJECT_OWNER || owner;
             const projectOwnerType = (process.env.PROJECT_OWNER_TYPE || context.payload.repository?.owner?.type || 'User').toLowerCase();
             const configuredProjectNumber = process.env.PROJECT_NUMBER || '';
+            const trustedAuthorAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
             const log = {
               project: null,
               processed: [],
+              skippedIssues: [],
               labelsAdded: [],
               fieldsUpdated: [],
               fieldsPreserved: [],
@@ -42,6 +49,7 @@ jobs:
             const normalize = (value) => String(value || '').trim().toLowerCase();
             const includesAny = (text, words) => words.some((word) => normalize(text).includes(normalize(word)));
             const issueText = (issue) => `${issue.title || ''}\n${issue.body || ''}`;
+            const hasTrustedAuthorAssociation = (item) => trustedAuthorAssociations.has(String(item.author_association || '').toUpperCase());
 
             const projectFieldSelection = `
               ... on ProjectV2Field { id name dataType }
@@ -388,7 +396,7 @@ jobs:
 
             async function getRepoIssues() {
               const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', per_page: 100 });
-              return issues.filter((issue) => !issue.pull_request);
+              return issues.filter((issue) => !issue.pull_request && hasTrustedAuthorAssociation(issue));
             }
 
             async function getProjectItems(project) {
@@ -423,6 +431,11 @@ jobs:
             }
 
             async function processIssue(issue, existingLabels, project) {
+              if (!hasTrustedAuthorAssociation(issue)) {
+                log.skippedIssues.push(`#${issue.number}: ${issue.author_association || 'unknown'}`);
+                return;
+              }
+
               const labelsToAdd = chooseLabels(issue, existingLabels);
               if (labelsToAdd.length) {
                 await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: labelsToAdd });
@@ -460,6 +473,7 @@ jobs:
               .addHeading('Auto triage summary')
               .addRaw(`Project: ${log.project}\n\n`)
               .addRaw(`Processed issues: ${log.processed.join(', ') || 'none'}\n\n`)
+              .addRaw(`Skipped untrusted issues:\n${log.skippedIssues.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Labels added:\n${log.labelsAdded.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Project fields updated:\n${log.fieldsUpdated.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
               .addRaw(`Project fields preserved:\n${log.fieldsPreserved.map((entry) => `- ${entry}`).join('\n') || '- none'}\n\n`)
