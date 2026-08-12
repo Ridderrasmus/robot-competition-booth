@@ -1,78 +1,45 @@
 # Robot Competition Booth
 
-A unified project for controlling a premade Arduino-based robot through a compact Blazor Server application with a Blockly programming interface.
+This repository contains the server-side control website and ESP32-S3 firmware for the Robot Competition Booth project.
 
-## Source layout
+## Repository layout
 
-All application and firmware source code lives under `src`:
+All buildable source is kept under `src` so documentation and other supporting material can remain separate:
 
 ```text
 src/
-├── RobotCompetitionBooth.slnx
-├── RobotCompetitionBooth.Web/          # Interactive Blazor Server app
-└── RobotCompetitionBooth.Firmware/     # PlatformIO project workspace
-    ├── include/
-    ├── lib/
-    ├── src/
-    └── test/
+|-- RobotCompetitionBooth.slnx
+|-- RobotCompetitionBooth.Web/       # Interactive Blazor Server application
+`-- RobotCompetitionBooth.Firmware/  # PlatformIO ESP32-S3 firmware
 ```
 
-Documentation and other supporting files can remain outside `src` without being mixed into the buildable projects.
+Each project has its own setup and operating notes:
 
-## Run the web app
+- [Blazor Server README](src/RobotCompetitionBooth.Web/README.md)
+- [ESP32-S3 firmware README](src/RobotCompetitionBooth.Firmware/README.md)
 
-The web app targets .NET 10 on Windows. The Windows target enables server-side access to the host computer's Bluetooth adapter. From the repository root, run:
+## Quick start
 
-```powershell
-dotnet run --project src/RobotCompetitionBooth.Web
-```
-
-To build the entire solution:
+Build and run the website on Windows:
 
 ```powershell
 dotnet build src/RobotCompetitionBooth.slnx
+dotnet run --project src/RobotCompetitionBooth.Web
 ```
 
-Open `/bluetooth` (or select **Bluetooth** in the navigation) to scan for devices visible to the server. The scan uses the server's Bluetooth radio; it does not use the web browser or the visitor's Bluetooth hardware.
-
-## Initialize the firmware project
-
-The firmware workspace has the standard PlatformIO directory layout, but no board is selected yet. Once the robot controller board is known, initialize it from the repository root:
+Build and upload the firmware:
 
 ```powershell
 Set-Location src/RobotCompetitionBooth.Firmware
-pio project init --board <board-id>
+pio run
+pio run --target upload
 ```
 
-## Planned system design
+The firmware advertises as `RobotBooth-ESP32S3`. The website's Bluetooth page scans using the Bluetooth adapter installed in the computer running the server, not the browser visitor's Bluetooth adapter.
 
-### Visual programming with Blockly
+## Direction
 
-- The Blazor Server app embeds Blockly for drag-and-drop robot programming.
-- Blockly blocks represent robot capabilities such as movement, sensors, conditions, loops, and actions.
-- Generated commands are exported to JSON.
-
-### Python compiler
-
-- A Python application will convert a Blockly workspace JSON document into robot-compatible opcodes.
-- It will validate the generated program before deployment and may eventually simulate robot execution.
-
-### Initial robot configuration via Bluetooth
-
-- During onboarding, the app connects to the robot over Bluetooth.
-- Bluetooth handles device pairing, first-time configuration, and Wi-Fi provisioning.
-
-### Runtime communication via Wi-Fi and MQTT
-
-- After setup, the robot joins the configured Wi-Fi network.
-- App-to-robot communication transitions to MQTT over Wi-Fi.
-- The MQTT broker runs inside the app to keep deployment simple and lightweight.
-
-## Parts list
-
-To be filled with data from the project parts spreadsheet.
-
-- _No parts added yet._
+The initial connection and provisioning path uses Bluetooth Low Energy. The intended runtime path will move robot communication to Wi-Fi and MQTT after configuration. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
 
 ## License
 
