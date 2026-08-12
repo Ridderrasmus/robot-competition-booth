@@ -6,7 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddScoped<BluetoothDiscoveryService>();
+builder.Services.AddSingleton<BluetoothDiscoveryService>();
+builder.Services.AddSingleton<BluetoothConnectionManager>();
 
 var app = builder.Build();
 

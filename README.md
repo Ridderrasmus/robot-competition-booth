@@ -35,7 +35,7 @@ pio run
 pio run --target upload
 ```
 
-The firmware advertises as `RobotBooth-ESP32S3`. The website's Bluetooth page scans using the Bluetooth adapter installed in the computer running the server, not the browser visitor's Bluetooth adapter.
+The firmware advertises as `RobotBooth-ESP32S3`. The website's Bluetooth page uses the adapter installed in the server computer to scan, pair, and maintain the robot connection; it does not use the browser visitor's Bluetooth adapter.
 
 ## Direction
 
