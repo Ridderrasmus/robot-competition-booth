@@ -1,10 +1,12 @@
 using RobotCompetitionBooth.Web.Components;
+using RobotCompetitionBooth.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddScoped<BluetoothDiscoveryService>();
 
 var app = builder.Build();
 

@@ -21,7 +21,7 @@ Documentation and other supporting files can remain outside `src` without being 
 
 ## Run the web app
 
-The web app targets .NET 10. From the repository root, run:
+The web app targets .NET 10 on Windows. The Windows target enables server-side access to the host computer's Bluetooth adapter. From the repository root, run:
 
 ```powershell
 dotnet run --project src/RobotCompetitionBooth.Web
@@ -32,6 +32,8 @@ To build the entire solution:
 ```powershell
 dotnet build src/RobotCompetitionBooth.slnx
 ```
+
+Open `/bluetooth` (or select **Bluetooth** in the navigation) to scan for devices visible to the server. The scan uses the server's Bluetooth radio; it does not use the web browser or the visitor's Bluetooth hardware.
 
 ## Initialize the firmware project
 

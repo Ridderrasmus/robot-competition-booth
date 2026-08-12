@@ -46,6 +46,10 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' class='bi bi-list-nested' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M4.5 11.5A.5.5 0 0 1 5 11h10a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm-2-4A.5.5 0 0 1 3 7h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm-2-4A.5.5 0 0 1 1 3h10a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z'/%3E%3C/svg%3E");
 }
 
+.bi-bluetooth-nav-menu {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M8.543.23A.75.75 0 0 0 7.25.75v5.19L4.28 2.97a.75.75 0 0 0-1.06 1.06L6.69 7.5l-3.47 3.47a.75.75 0 1 0 1.06 1.06l2.97-2.97v5.19a.75.75 0 0 0 1.293.52l4-3.5a.75.75 0 0 0 0-1.04L9.81 7.5l2.73-2.73a.75.75 0 0 0 0-1.04l-4-3.5zM8.75 2.56l2.19 1.69-2.19 1.69V2.56zm0 6.5 2.19 1.69-2.19 1.69V9.06z'/%3E%3C/svg%3E");
+}
+
 .nav-item {
     font-size: 0.9rem;
     padding-bottom: 0.5rem;

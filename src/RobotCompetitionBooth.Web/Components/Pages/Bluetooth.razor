@@ -1,0 +1,135 @@
+@page "/bluetooth"
+@implements IDisposable
+@inject BluetoothDiscoveryService BluetoothDiscovery
+
+<PageTitle>Bluetooth devices</PageTitle>
+
+<div class="bluetooth-page">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+        <div>
+            <h1>Bluetooth devices</h1>
+            <p class="text-secondary mb-0">
+                Devices visible to the Bluetooth adapter on the server running this application.
+            </p>
+        </div>
+
+        <button class="btn btn-primary" @onclick="ScanAsync" disabled="@isScanning">
+            @if (isScanning)
+            {
+                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                <span>Scanning...</span>
+            }
+            else
+            {
+                <span>Scan again</span>
+            }
+        </button>
+    </div>
+
+    @if (isScanning)
+    {
+        <div class="alert alert-info" role="status">
+            @scanStatus
+            Devices may need to be put into pairing mode before they advertise their name.
+        </div>
+    }
+    else if (scanResult is not null)
+    {
+        <div class="alert @(scanResult.IsAvailable ? "alert-secondary" : "alert-warning")" role="status">
+            @scanResult.StatusMessage
+        </div>
+    }
+
+    @if (!isScanning && scanResult?.Devices.Count > 0)
+    {
+        <div class="table-responsive rounded border">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">Device</th>
+                        <th scope="col">Address</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Paired</th>
+                        <th scope="col">Connected</th>
+                        <th scope="col">Signal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var device in scanResult.Devices)
+                    {
+                        <tr @key="device.Id">
+                            <td class="fw-semibold">@device.Name</td>
+                            <td><code>@device.Address</code></td>
+                            <td>@(device.IsLowEnergy ? "Bluetooth LE" : "Bluetooth")</td>
+                            <td>@FormatState(device.IsPaired)</td>
+                            <td>@FormatState(device.IsConnected)</td>
+                            <td>@FormatSignal(device.SignalStrength)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly TimeSpan ScanDuration = TimeSpan.FromSeconds(8);
+    private CancellationTokenSource? scanCancellation;
+    private BluetoothScanResult? scanResult;
+    private bool isScanning;
+    private string scanStatus = "Starting Bluetooth scan...";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ = InvokeAsync(ScanAsync);
+        }
+    }
+
+    private async Task ScanAsync()
+    {
+        scanCancellation?.Cancel();
+        scanCancellation?.Dispose();
+        scanCancellation = new CancellationTokenSource();
+        isScanning = true;
+        scanResult = null;
+        scanStatus = "Starting Bluetooth scan...";
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<string>(message =>
+            {
+                scanStatus = message;
+                StateHasChanged();
+            });
+            scanResult = await BluetoothDiscovery.ScanAsync(ScanDuration, progress, scanCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Navigation away from the page cancels the host scan.
+        }
+        finally
+        {
+            isScanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string FormatState(bool? state) => state switch
+    {
+        true => "Yes",
+        false => "No",
+        null => "Unknown"
+    };
+
+    private static string FormatSignal(short? strength) =>
+        strength is null ? "Unknown" : $"{strength} dBm";
+
+    public void Dispose()
+    {
+        scanCancellation?.Cancel();
+        scanCancellation?.Dispose();
+    }
+}
