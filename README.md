@@ -2,73 +2,73 @@
 
 A unified project for controlling a premade Arduino-based robot through a compact Blazor Server application with a Blockly programming interface.
 
-## Project Goal
+## Source layout
 
-This repository is designed to host:
-
-- A **Blazor Server** application (operator UI + local control backend)
-- A **Python** executable that will be the blockly workspace JSON to robot compatible instructions compiler
-- A **C++ Arduino** firmware project (robot runtime)
-- Shared protocol/docs for communication between app and robot
-
-The main objective is to allow users to visually program robot behaviors using **Blockly**, then deploy and run those behaviors on a premade Arduino robot.
-
-## Planned System Design
-
-### 1) Visual Programming with Blockly
-- The Blazor Server app embeds Blockly for drag-and-drop robot programming.
-- Blockly blocks represent robot capabilities (movement, sensors, conditions, loops, actions).
-- Generated code/commands are exported to JSON.
-
-### 2) Python compiler
-- The python app should be able to take in a blockly workspace json.
-- It will find the code that actually runs and is used and compile that to opcode.
-- Verify it'll run and not break somehow.
-- Potentially even simulate the robot running.
-
-### 3) Initial Robot Configuration via Bluetooth
-- During onboarding, the app connects to the robot over **Bluetooth**.
-- Bluetooth is used for initial setup tasks such as:
-  - device pairing
-  - first-time configuration
-  - provisioning Wi-Fi credentials
-
-### 4) Runtime Communication via Wi-Fi + MQTT
-- After initial Bluetooth setup, the robot joins the configured Wi-Fi network.
-- App-to-robot communication then transitions to **MQTT** over Wi-Fi.
-- The **MQTT broker runs natively inside the app** to keep deployment simple and lightweight.
-- Preferred architecture is **not distributed** (single app host where possible).
-
-## Repository Structure (Planned)
+All application and firmware source code lives under `src`:
 
 ```text
-robot-competition-booth/
-├─ src/
-│  ├─ app/                    # Blazor Server application
-│  │  ├─ RobotCompetition.App.sln
-│  │  └─ RobotCompetition.App/
-│  ├─ firmware/               # Arduino C++ project(s)
-│  │  └─ robot-controller/
-|  ├─ compiler/               # Python blockly to opcode compiler
-|  |  └─ compiler.py
-│  └─ shared/                 # Shared protocol contracts/docs
-├─ docs/
-│  ├─ challenges/             # Each folder contains relevant files, documentation, etc. for each individual challenge
-|  |  ├─ challenge1/
-|  |  ├─ challenge2/
-|  |  ├─ challenge3/
-|  |  ├─ challenge4/
-|  |  └─ challenge5/
-│  ├─ architecture/
-│  ├─ communication/
-│  └─ blockly/
-├─ tools/
-└─ README.md
+src/
+├── RobotCompetitionBooth.slnx
+├── RobotCompetitionBooth.Web/          # Interactive Blazor Server app
+└── RobotCompetitionBooth.Firmware/     # PlatformIO project workspace
+    ├── include/
+    ├── lib/
+    ├── src/
+    └── test/
 ```
 
-## Parts List
+Documentation and other supporting files can remain outside `src` without being mixed into the buildable projects.
 
-To be filled with data from [excel sheet]()
+## Run the web app
+
+The web app targets .NET 10. From the repository root, run:
+
+```powershell
+dotnet run --project src/RobotCompetitionBooth.Web
+```
+
+To build the entire solution:
+
+```powershell
+dotnet build src/RobotCompetitionBooth.slnx
+```
+
+## Initialize the firmware project
+
+The firmware workspace has the standard PlatformIO directory layout, but no board is selected yet. Once the robot controller board is known, initialize it from the repository root:
+
+```powershell
+Set-Location src/RobotCompetitionBooth.Firmware
+pio project init --board <board-id>
+```
+
+## Planned system design
+
+### Visual programming with Blockly
+
+- The Blazor Server app embeds Blockly for drag-and-drop robot programming.
+- Blockly blocks represent robot capabilities such as movement, sensors, conditions, loops, and actions.
+- Generated commands are exported to JSON.
+
+### Python compiler
+
+- A Python application will convert a Blockly workspace JSON document into robot-compatible opcodes.
+- It will validate the generated program before deployment and may eventually simulate robot execution.
+
+### Initial robot configuration via Bluetooth
+
+- During onboarding, the app connects to the robot over Bluetooth.
+- Bluetooth handles device pairing, first-time configuration, and Wi-Fi provisioning.
+
+### Runtime communication via Wi-Fi and MQTT
+
+- After setup, the robot joins the configured Wi-Fi network.
+- App-to-robot communication transitions to MQTT over Wi-Fi.
+- The MQTT broker runs inside the app to keep deployment simple and lightweight.
+
+## Parts list
+
+To be filled with data from the project parts spreadsheet.
 
 - _No parts added yet._
 
