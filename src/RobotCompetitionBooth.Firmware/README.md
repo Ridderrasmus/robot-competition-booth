@@ -15,8 +15,11 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
 - Starts authenticated, bonded BLE pairing as soon as a client connects.
 - Uses the constant passkey `000123`.
 - Exposes a small authenticated status characteristic whose value is `ready`.
+- Accepts Wi-Fi credentials through a write-only, authenticated provisioning characteristic using 20-byte-or-smaller packets.
+- Exposes an authenticated Wi-Fi status characteristic so the server can wait for `connected` or report a failure.
+- Keeps provisioned credentials in RAM rather than persisting them to the ESP32 flash, and discards them after a failed connection.
 - Restarts advertising after a client disconnects.
-- Uses the built-in RGB LED as a boot status indicator: amber while starting, green while BLE is advertising, and red if BLE startup fails.
+- Uses the built-in RGB LED as a status indicator: amber while starting or joining Wi-Fi, green while BLE is ready (or after Wi-Fi failure), blue when Wi-Fi is connected, and red if startup fails.
 
 BLE passkeys are always represented as six digits. The requested three-digit code `123` therefore appears as `000123` in pairing dialogs.
 
@@ -53,13 +56,17 @@ If automatic upload cannot connect, hold **BOOT**, tap **RESET**, release **BOOT
 
 ## Pairing and verification
 
-The device is a custom BLE peripheral rather than a Bluetooth Classic device. Connect with a BLE-capable client, then access the authenticated status characteristic to trigger pairing. Enter `000123` when the client prompts for the passkey.
+The device is a custom BLE peripheral rather than a Bluetooth Classic device. The web application securely provisions it after pairing; configure the website's Wi-Fi setup page first, then connect from its Bluetooth page. For manual inspection, connect with a BLE-capable client and access an authenticated characteristic to trigger pairing. Enter `000123` when the client prompts for the passkey.
 
 The RGB LED provides a boot-state check without a serial monitor:
 
 - Amber: firmware is starting.
 - Green: the GATT server is running and BLE advertising started.
+- Amber: the board is trying to join the provisioned Wi-Fi network.
+- Blue: Wi-Fi connected successfully.
 - Red: BLE startup failed and the board will restart.
+
+Wi-Fi settings intentionally are not retained across board restarts. The Windows host stores them securely and sends them again whenever it establishes a Robobooth BLE connection.
 
 Generic BLE devices may not appear in a phone's normal Bluetooth settings. Use a BLE scanner such as nRF Connect when diagnosing advertisements or custom GATT services.
 
@@ -69,4 +76,4 @@ If a phone or computer has already bonded with an older firmware passkey, remove
 
 - `platformio.ini` pins the ESP32 platform, Arduino framework, NimBLE-Arduino dependency, and serial ports.
 - `boards/esp32-s3-n16r8.json` defines the local 16 MB flash and 8 MB OPI PSRAM board profile.
-- `src/main.cpp` configures the BLE server, security, GATT service, advertising, and RGB status LED.
+- `src/main.cpp` configures the BLE server, security, Wi-Fi provisioning protocol, advertising, and RGB status LED.

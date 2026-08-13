@@ -5,6 +5,7 @@ public enum BluetoothConnectionPhase
     Disconnected,
     Pairing,
     Connecting,
+    Provisioning,
     Connected,
     Reconnecting,
     Disconnecting,
@@ -30,6 +31,7 @@ public sealed record BluetoothConnectionState(
     public bool IsBusy => Phase is
         BluetoothConnectionPhase.Pairing or
         BluetoothConnectionPhase.Connecting or
+        BluetoothConnectionPhase.Provisioning or
         BluetoothConnectionPhase.Disconnecting;
 
     public bool CanDisconnect => Phase is

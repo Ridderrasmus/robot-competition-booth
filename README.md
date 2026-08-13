@@ -35,11 +35,11 @@ pio run
 pio run --target upload
 ```
 
-The firmware advertises as `RobotBooth-ESP32S3`. The website's Bluetooth page uses the adapter installed in the server computer to scan, pair, and maintain the robot connection; it does not use the browser visitor's Bluetooth adapter.
+The firmware advertises as `RobotBooth-ESP32S3`. Configure the target network on the website's **Wi-Fi setup** page before using the **Bluetooth** page to scan, pair, provision Wi-Fi, and maintain the robot connection. Bluetooth uses the adapter installed in the server computer; it does not use the browser visitor's Bluetooth adapter.
 
 ## Direction
 
-The initial connection and provisioning path uses Bluetooth Low Energy. The intended runtime path will move robot communication to Wi-Fi and MQTT after configuration. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
+The initial connection and Wi-Fi provisioning path uses authenticated Bluetooth Low Energy. The intended runtime path will move robot communication to Wi-Fi and MQTT after configuration. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
 
 ## License
 

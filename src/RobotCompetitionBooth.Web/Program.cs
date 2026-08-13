@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddSingleton<BluetoothDiscoveryService>();
+builder.Services.AddSingleton<WifiCredentialStore>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
 
 var app = builder.Build();

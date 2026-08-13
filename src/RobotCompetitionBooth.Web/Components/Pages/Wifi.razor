@@ -1,0 +1,157 @@
+@page "/wifi"
+@inject WifiCredentialStore WifiCredentials
+
+<PageTitle>Wi-Fi setup</PageTitle>
+
+<div class="wifi-page">
+    <div class="mb-4">
+        <h1>Wi-Fi setup</h1>
+        <p class="text-secondary mb-0">
+            Configure the network that Robobooth devices should use. These credentials are stored in
+            in Local AppData using Windows user-scoped encryption on this server computer and sent only over an authenticated,
+            encrypted BLE connection.
+        </p>
+    </div>
+
+    <section class="card mb-4" aria-labelledby="wifi-status-heading">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <h2 id="wifi-status-heading" class="h5 mb-0">Saved configuration</h2>
+                <span class="badge @(status.IsConfigured ? "text-bg-success" : "text-bg-warning")">
+                    @(status.IsConfigured ? "Configured" : "Required")
+                </span>
+            </div>
+
+            @if (status.IsConfigured)
+            {
+                <p class="mb-0">
+                    Robobooth devices will be provisioned for <strong>@status.NetworkName</strong> when they connect.
+                    The saved password is never displayed.
+                </p>
+            }
+            else
+            {
+                <p class="mb-0">
+                    Save a network before connecting to a Robobooth device over Bluetooth.
+                </p>
+            }
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="wifi-form-heading">
+        <div class="card-body">
+            <h2 id="wifi-form-heading" class="h5">@(status.IsConfigured ? "Replace Wi-Fi credentials" : "Set Wi-Fi credentials")</h2>
+
+            <div class="row g-3 mt-1">
+                <div class="col-12 col-md-7">
+                    <label for="network-name" class="form-label">Network name (SSID)</label>
+                    <input id="network-name"
+                           class="form-control"
+                           type="text"
+                           maxlength="32"
+                           autocomplete="off"
+                           @bind="networkName"
+                           @bind:event="oninput" />
+                </div>
+
+                <div class="col-12 col-md-7">
+                    <label for="network-password" class="form-label">Wi-Fi password</label>
+                    <input id="network-password"
+                           class="form-control"
+                           type="password"
+                           minlength="8"
+                           maxlength="64"
+                           autocomplete="off"
+                           @bind="password"
+                           @bind:event="oninput" />
+                    <div class="form-text">Use an 8–63-byte WPA/WPA2 passphrase or a 64-digit hexadecimal key.</div>
+                </div>
+
+                <div class="col-12 d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary" type="button" @onclick="Save">
+                        Save Wi-Fi settings
+                    </button>
+
+                    @if (status.IsConfigured)
+                    {
+                        <button class="btn btn-outline-danger" type="button" @onclick="Delete">
+                            Remove saved settings
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(operationMessage))
+            {
+                <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger") mt-3 mb-0" role="status">
+                    @operationMessage
+                </div>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private WifiConfigurationStatus status = new(false, null);
+    private string networkName = string.Empty;
+    private string password = string.Empty;
+    private string? operationMessage;
+    private bool operationSucceeded;
+
+    protected override void OnInitialized()
+    {
+        RefreshStatus();
+    }
+
+    private void Save()
+    {
+        operationMessage = null;
+        operationSucceeded = false;
+
+        if (!WifiCredentialStore.TryValidate(networkName, password, out var validationMessage))
+        {
+            operationMessage = validationMessage;
+            return;
+        }
+
+        try
+        {
+            WifiCredentials.Save(networkName, password);
+            password = string.Empty;
+            RefreshStatus();
+            operationSucceeded = true;
+            operationMessage = "Wi-Fi settings were saved securely. You can now connect to a Robobooth device.";
+        }
+        catch (Exception exception)
+        {
+            operationMessage = $"Windows could not save the Wi-Fi settings securely: {exception.Message}";
+        }
+    }
+
+    private void Delete()
+    {
+        try
+        {
+            WifiCredentials.Delete();
+            networkName = string.Empty;
+            password = string.Empty;
+            RefreshStatus();
+            operationSucceeded = true;
+            operationMessage = "The saved Wi-Fi settings were removed. New Robobooth connections are disabled.";
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            operationMessage = $"Windows could not remove the saved Wi-Fi settings: {exception.Message}";
+        }
+    }
+
+    private void RefreshStatus()
+    {
+        status = WifiCredentials.GetStatus();
+        if (status.IsConfigured)
+        {
+            networkName = status.NetworkName ?? string.Empty;
+        }
+    }
+}

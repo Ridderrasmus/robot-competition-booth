@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
@@ -8,12 +10,25 @@ using RobotCompetitionBooth.Web.Models;
 namespace RobotCompetitionBooth.Web.Services;
 
 public sealed class BluetoothConnectionManager(
+    WifiCredentialStore wifiCredentialStore,
     ILogger<BluetoothConnectionManager> logger) : IAsyncDisposable
 {
     private static readonly Guid RobotServiceUuid =
         Guid.Parse("8ddf7a40-7520-4e57-9e32-9b6b091c5c8b");
     private static readonly Guid StatusCharacteristicUuid =
         Guid.Parse("f6eb0c76-11a6-4a5f-a58d-6b55d94ff31a");
+    private static readonly Guid WifiProvisioningCharacteristicUuid =
+        Guid.Parse("0a7c0061-88a4-43cc-a010-faf7595da303");
+    private static readonly Guid WifiStatusCharacteristicUuid =
+        Guid.Parse("0a7c0062-88a4-43cc-a010-faf7595da303");
+
+    private static readonly TimeSpan WifiConnectionTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan WifiStatusPollInterval = TimeSpan.FromMilliseconds(500);
+    private const byte ProvisioningProtocolVersion = 1;
+    private const byte ProvisioningStartCommand = 1;
+    private const byte ProvisioningDataCommand = 2;
+    private const byte ProvisioningCommitCommand = 3;
+    private const int ProvisioningChunkSize = 16;
 
     private readonly SemaphoreSlim connectionLock = new(1, 1);
     private readonly object stateLock = new();
@@ -45,6 +60,22 @@ public sealed class BluetoothConnectionManager(
         if (!device.IsLowEnergy)
         {
             return new(false, "Only Bluetooth Low Energy devices can be connected by this page.");
+        }
+
+        WifiCredentials? wifiCredentials;
+        try
+        {
+            wifiCredentials = wifiCredentialStore.GetCredentials();
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read Wi-Fi credentials from Windows Credential Locker");
+            return new(false, "Windows could not read the saved Wi-Fi settings. Open Wi-Fi setup and save them again.");
+        }
+
+        if (wifiCredentials is null)
+        {
+            return new(false, "Configure Wi-Fi settings before connecting to a Robobooth device.");
         }
 
         if (!TryNormalizePairingCode(pairingCode, out var normalizedCode))
@@ -158,6 +189,41 @@ public sealed class BluetoothConnectionManager(
                     "The selected device answered with an unexpected robot status value.");
             }
 
+            connectionStage = "Discovering the secure Wi-Fi provisioning characteristic";
+            var provisioningCharacteristicsResult = await candidateService.GetCharacteristicsForUuidAsync(
+                WifiProvisioningCharacteristicUuid,
+                BluetoothCacheMode.Cached);
+            if (provisioningCharacteristicsResult.Status != GattCommunicationStatus.Success ||
+                provisioningCharacteristicsResult.Characteristics.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "The Robobooth firmware does not expose the secure Wi-Fi provisioning characteristic.");
+            }
+
+            connectionStage = "Discovering the secure Wi-Fi status characteristic";
+            var wifiStatusCharacteristicsResult = await candidateService.GetCharacteristicsForUuidAsync(
+                WifiStatusCharacteristicUuid,
+                BluetoothCacheMode.Cached);
+            if (wifiStatusCharacteristicsResult.Status != GattCommunicationStatus.Success ||
+                wifiStatusCharacteristicsResult.Characteristics.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "The Robobooth firmware does not expose the secure Wi-Fi status characteristic.");
+            }
+
+            Publish(new(
+                BluetoothConnectionPhase.Provisioning,
+                DisplayName(device),
+                device.Address,
+                $"Sending the saved Wi-Fi settings for {wifiCredentials.NetworkName} to the Robobooth...",
+                DateTimeOffset.Now));
+
+            connectionStage = "Provisioning the Robobooth Wi-Fi connection";
+            await ProvisionWifiAsync(
+                provisioningCharacteristicsResult.Characteristics[0],
+                wifiStatusCharacteristicsResult.Characteristics[0],
+                wifiCredentials);
+
             connectionStage = "Enabling the maintained GATT connection";
             candidateSession.MaintainConnection = true;
 
@@ -176,14 +242,14 @@ public sealed class BluetoothConnectionManager(
                 BluetoothConnectionPhase.Connected,
                 connectedName,
                 device.Address,
-                $"Connected to {connectedName}. Windows will maintain this connection for the lifetime of the server process.",
+                $"Connected to {connectedName} and provisioned Wi-Fi for {wifiCredentials.NetworkName}. Windows will maintain the BLE connection for the lifetime of the server process.",
                 DateTimeOffset.Now));
 
             logger.LogInformation(
                 "Connected to BLE robot {DeviceName} at {DeviceAddress}",
                 connectedName,
                 device.Address);
-            return new(true, $"Connected to {connectedName}.");
+            return new(true, $"Connected to {connectedName}. The Robobooth is connected to {wifiCredentials.NetworkName}.");
         }
         catch (Exception exception)
         {
@@ -366,6 +432,100 @@ public sealed class BluetoothConnectionManager(
     {
         using var reader = DataReader.FromBuffer(buffer);
         return reader.ReadString(reader.UnconsumedBufferLength);
+    }
+
+    private static async Task ProvisionWifiAsync(
+        GattCharacteristic provisioningCharacteristic,
+        GattCharacteristic wifiStatusCharacteristic,
+        WifiCredentials credentials)
+    {
+        var networkNameBytes = Encoding.UTF8.GetBytes(credentials.NetworkName);
+        var passwordBytes = Encoding.UTF8.GetBytes(credentials.Password);
+        var credentialBytes = new byte[networkNameBytes.Length + passwordBytes.Length];
+
+        try
+        {
+            networkNameBytes.CopyTo(credentialBytes, 0);
+            passwordBytes.CopyTo(credentialBytes, networkNameBytes.Length);
+
+            await WriteProvisioningPacketAsync(
+                provisioningCharacteristic,
+                [ProvisioningProtocolVersion, ProvisioningStartCommand, checked((byte)networkNameBytes.Length), checked((byte)passwordBytes.Length)]);
+
+            for (var offset = 0; offset < credentialBytes.Length; offset += ProvisioningChunkSize)
+            {
+                var chunkLength = Math.Min(ProvisioningChunkSize, credentialBytes.Length - offset);
+                var packet = new byte[4 + chunkLength];
+                packet[0] = ProvisioningProtocolVersion;
+                packet[1] = ProvisioningDataCommand;
+                packet[2] = (byte)(offset & 0xff);
+                packet[3] = (byte)(offset >> 8);
+                credentialBytes.AsSpan(offset, chunkLength).CopyTo(packet.AsSpan(4));
+
+                try
+                {
+                    await WriteProvisioningPacketAsync(provisioningCharacteristic, packet);
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(packet);
+                }
+            }
+
+            await WriteProvisioningPacketAsync(
+                provisioningCharacteristic,
+                [ProvisioningProtocolVersion, ProvisioningCommitCommand]);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+            CryptographicOperations.ZeroMemory(credentialBytes);
+        }
+
+        var deadline = DateTimeOffset.UtcNow + WifiConnectionTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var statusResult = await wifiStatusCharacteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
+            if (statusResult.Status != GattCommunicationStatus.Success)
+            {
+                throw new InvalidOperationException(
+                    $"The Robobooth Wi-Fi status could not be read ({statusResult.Status}).");
+            }
+
+            var wifiStatus = ReadUtf8(statusResult.Value);
+            switch (wifiStatus)
+            {
+                case "connected":
+                    return;
+                case "invalid":
+                    throw new InvalidOperationException(
+                        "The Robobooth rejected the Wi-Fi configuration payload.");
+                case "failed":
+                    throw new InvalidOperationException(
+                        "The Robobooth could not join the configured Wi-Fi network. Check the network name and password.");
+            }
+
+            await Task.Delay(WifiStatusPollInterval);
+        }
+
+        throw new TimeoutException(
+            "The Robobooth did not connect to the configured Wi-Fi network within 25 seconds.");
+    }
+
+    private static async Task WriteProvisioningPacketAsync(
+        GattCharacteristic characteristic,
+        byte[] packet)
+    {
+        using var writer = new DataWriter();
+        writer.WriteBytes(packet);
+        var writeResult = await characteristic.WriteValueWithResultAsync(
+            writer.DetachBuffer(),
+            GattWriteOption.WriteWithResponse);
+        if (writeResult.Status != GattCommunicationStatus.Success)
+        {
+            throw new InvalidOperationException(
+                $"The Robobooth rejected a Wi-Fi provisioning packet ({writeResult.Status}).");
+        }
     }
 
     private static string DisplayName(BluetoothDeviceInfo device) =>

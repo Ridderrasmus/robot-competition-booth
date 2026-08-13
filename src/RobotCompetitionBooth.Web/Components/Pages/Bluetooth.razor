@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject BluetoothDiscoveryService BluetoothDiscovery
 @inject BluetoothConnectionManager BluetoothConnection
+@inject WifiCredentialStore WifiCredentials
 
 <PageTitle>Bluetooth devices</PageTitle>
 
@@ -10,7 +11,7 @@
         <div>
             <h1>Bluetooth devices</h1>
             <p class="text-secondary mb-0">
-                Devices visible to the Bluetooth adapter on the server running this application.
+                Pair with a Robobooth and provision its Wi-Fi connection from this server computer.
             </p>
         </div>
 
@@ -26,6 +27,20 @@
             }
         </button>
     </div>
+
+    @if (!wifiStatus.IsConfigured)
+    {
+        <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-3" role="alert">
+            <span>Wi-Fi settings are required before a Robobooth can be connected.</span>
+            <a class="btn btn-sm btn-warning" href="wifi">Open Wi-Fi setup</a>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-light border" role="status">
+            Saved Wi-Fi network: <strong>@wifiStatus.NetworkName</strong>. Its credentials will be sent automatically after secure BLE pairing.
+        </div>
+    }
 
     <section class="card mb-4" aria-labelledby="connection-heading">
         <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -78,7 +93,7 @@
                     <div class="col-auto">
                         <button class="btn btn-success"
                                 @onclick="ConnectSelectedAsync"
-                                disabled="@connectionState.IsBusy">
+                                disabled="@(connectionState.IsBusy || !wifiStatus.IsConfigured)">
                             @if (connectionState.IsBusy)
                             {
                                 <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
@@ -140,7 +155,7 @@
                             <td class="text-end">
                                 <button class="btn btn-sm @(IsSelected(device) ? "btn-primary" : "btn-outline-primary")"
                                         @onclick="() => SelectDevice(device)"
-                                        disabled="@(!device.IsLowEnergy || connectionState.IsBusy)">
+                                        disabled="@(!device.IsLowEnergy || connectionState.IsBusy || !wifiStatus.IsConfigured)">
                                     @(IsSelected(device) ? "Selected" : "Select")
                                 </button>
                             </td>
@@ -158,6 +173,7 @@
     private BluetoothScanResult? scanResult;
     private BluetoothDeviceInfo? selectedDevice;
     private BluetoothConnectionState connectionState = BluetoothConnectionState.Initial;
+    private WifiConfigurationStatus wifiStatus = new(false, null);
     private bool isScanning;
     private bool disposed;
     private bool operationSucceeded;
@@ -176,6 +192,7 @@
 
     protected override void OnInitialized()
     {
+        wifiStatus = WifiCredentials.GetStatus();
         connectionState = BluetoothConnection.State;
         BluetoothConnection.StateChanged += OnConnectionStateChanged;
     }
