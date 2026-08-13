@@ -1,14 +1,39 @@
 using RobotCompetitionBooth.Web.Components;
 using RobotCompetitionBooth.Web.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var applicationBaseDirectory = Path.GetFullPath(AppContext.BaseDirectory)
+    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+var executableDirectory = Path.GetDirectoryName(Environment.ProcessPath);
+var runsFromExtractedSingleFile = executableDirectory is not null &&
+    !string.Equals(
+        Path.GetFullPath(executableDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+        applicationBaseDirectory,
+        StringComparison.OrdinalIgnoreCase);
+
+var builder = runsFromExtractedSingleFile
+    ? WebApplication.CreateBuilder(new WebApplicationOptions
+    {
+        Args = args,
+        ContentRootPath = applicationBaseDirectory,
+        WebRootPath = Path.Combine(applicationBaseDirectory, "wwwroot")
+    })
+    : WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.Configure<EmbeddedMqttOptions>(
+    builder.Configuration.GetSection(EmbeddedMqttOptions.SectionName));
 builder.Services.AddSingleton<BluetoothDiscoveryService>();
 builder.Services.AddSingleton<WifiCredentialStore>();
+builder.Services.AddSingleton<WifiNetworkScanner>();
+builder.Services.AddSingleton<MqttBrokerAccessService>();
+builder.Services.AddSingleton<MqttBrokerEndpointProvider>();
+builder.Services.AddSingleton<RobotDeviceStateService>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
+builder.Services.AddHostedService<EmbeddedMqttBrokerService>();
+builder.Services.AddHostedService<BluetoothShutdownService>();
 
 var app = builder.Build();
 
@@ -20,7 +45,20 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
-app.UseHttpsRedirection();
+
+var configuredUrls = (app.Configuration["urls"] ?? string.Empty)
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+var hasHttpsEndpoint = configuredUrls.Any(url =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps) ||
+    app.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any(endpoint =>
+    {
+        var url = endpoint["Url"];
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
+    });
+if (hasHttpsEndpoint)
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAntiforgery();
 

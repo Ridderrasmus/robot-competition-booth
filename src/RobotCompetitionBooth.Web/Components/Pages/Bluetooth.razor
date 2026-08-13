@@ -11,7 +11,7 @@
         <div>
             <h1>Bluetooth devices</h1>
             <p class="text-secondary mb-0">
-                Pair with a Robobooth and provision its Wi-Fi connection from this server computer.
+                Pair with a Robobooth and provision its Wi-Fi and live telemetry connection from this server computer.
             </p>
         </div>
 
@@ -38,7 +38,7 @@
     else
     {
         <div class="alert alert-light border" role="status">
-            Saved Wi-Fi network: <strong>@wifiStatus.NetworkName</strong>. Its credentials will be sent automatically after secure BLE pairing.
+            Saved Wi-Fi network: <strong>@wifiStatus.NetworkName</strong>. Its credentials and the built-in MQTT endpoint will be sent automatically after secure BLE pairing.
         </div>
     }
 
@@ -55,7 +55,7 @@
             @if (connectionState.CanDisconnect)
             {
                 <button class="btn btn-outline-danger" @onclick="DisconnectAsync" disabled="@connectionState.IsBusy">
-                    Disconnect
+                    Disconnect and forget
                 </button>
             }
         </div>
@@ -277,7 +277,14 @@
     private async Task DisconnectAsync()
     {
         operationMessage = null;
-        await BluetoothConnection.DisconnectAsync();
+        var result = await BluetoothConnection.DisconnectAsync();
+        if (disposed)
+        {
+            return;
+        }
+
+        operationSucceeded = result.Succeeded;
+        operationMessage = result.Message;
     }
 
     private void OnConnectionStateChanged(object? sender, BluetoothConnectionState updatedState)

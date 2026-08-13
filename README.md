@@ -27,6 +27,15 @@ dotnet build src/RobotCompetitionBooth.slnx
 dotnet run --project src/RobotCompetitionBooth.Web
 ```
 
+Publish the complete Windows host, including its MQTT broker and .NET runtime, as one executable:
+
+```powershell
+dotnet publish src/RobotCompetitionBooth.Web -p:PublishProfile=WindowsSingleFile
+```
+
+Run `src/RobotCompetitionBooth.Web/bin/publish/win-x64/RobotCompetitionBooth.Web.exe`, then open
+`http://localhost:5000` unless an alternative ASP.NET Core URL has been configured.
+
 Build and upload the firmware:
 
 ```powershell
@@ -35,11 +44,13 @@ pio run
 pio run --target upload
 ```
 
-The firmware advertises as `RobotBooth-ESP32S3`. Configure the target network on the website's **Wi-Fi setup** page before using the **Bluetooth** page to scan, pair, provision Wi-Fi, and maintain the robot connection. Bluetooth uses the adapter installed in the server computer; it does not use the browser visitor's Bluetooth adapter.
+The firmware advertises as `RobotBooth-ESP32S3`. On the website's **Wi-Fi setup** page, scan with the Windows host's Wi-Fi adapter and select the network the device should use. The host's current Wi-Fi connection is marked and pinned first; secured networks request a password, while open networks can be saved without one. Then use the **Bluetooth** page to scan, pair, provision Wi-Fi and MQTT, and maintain the robot connection. The device slowly cycles its RGB LED and sends the current colour to the app's **Live devices** page over Wi-Fi. Bluetooth and Wi-Fi discovery use the adapters installed in the server computer, not the browser visitor's adapters.
+
+Selecting **Disconnect and forget** removes every saved `RobotBooth-*` pairing from Windows. The app performs the same sweep after a failed post-pairing connection, when the executable shuts down normally, and at the next startup as recovery from a forced exit.
 
 ## Direction
 
-The initial connection and Wi-Fi provisioning path uses authenticated Bluetooth Low Energy. The intended runtime path will move robot communication to Wi-Fi and MQTT after configuration. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
+The initial connection and Wi-Fi/MQTT provisioning path uses authenticated Bluetooth Low Energy. Runtime colour telemetry uses the MQTT broker hosted inside the same Blazor executable. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
 
 ## License
 

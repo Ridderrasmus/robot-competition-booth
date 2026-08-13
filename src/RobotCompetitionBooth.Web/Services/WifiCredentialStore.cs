@@ -128,6 +128,12 @@ public sealed class WifiCredentialStore
             return false;
         }
 
+        if (passwordByteCount == 0)
+        {
+            validationMessage = null;
+            return true;
+        }
+
         var isPassphrase = passwordByteCount is >= 8 and <= 63;
         var isRawPsk = password.Length == 64 && password.All(char.IsAsciiHexDigit);
         if (!isPassphrase && !isRawPsk)
@@ -167,7 +173,7 @@ public sealed class WifiCredentialStore
             var networkNameLength = plaintext[1];
             var passwordLength = plaintext[2];
             if (networkNameLength is < 1 or > 32 ||
-                passwordLength is < 8 or > 64 ||
+                passwordLength > 64 ||
                 plaintext.Length != StorageHeaderLength + networkNameLength + passwordLength)
             {
                 throw new InvalidDataException("The saved Wi-Fi credential data is invalid.");

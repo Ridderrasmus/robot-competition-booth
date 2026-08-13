@@ -1,5 +1,6 @@
 @page "/wifi"
 @inject WifiCredentialStore WifiCredentials
+@inject WifiNetworkScanner WifiNetworks
 
 <PageTitle>Wi-Fi setup</PageTitle>
 
@@ -7,16 +8,15 @@
     <div class="mb-4">
         <h1>Wi-Fi setup</h1>
         <p class="text-secondary mb-0">
-            Configure the network that Robobooth devices should use. These credentials are stored in
-            in Local AppData using Windows user-scoped encryption on this server computer and sent only over an authenticated,
-            encrypted BLE connection.
+            Choose the network that Robobooth devices should use. The password is stored in Local AppData using
+            Windows user-scoped encryption and is sent only over an authenticated, encrypted BLE connection.
         </p>
     </div>
 
     <section class="card mb-4" aria-labelledby="wifi-status-heading">
         <div class="card-body">
             <div class="d-flex align-items-center gap-2 mb-2">
-                <h2 id="wifi-status-heading" class="h5 mb-0">Saved configuration</h2>
+                <h2 id="wifi-status-heading" class="h5 mb-0">Saved Robobooth target</h2>
                 <span class="badge @(status.IsConfigured ? "text-bg-success" : "text-bg-warning")">
                     @(status.IsConfigured ? "Configured" : "Required")
                 </span>
@@ -25,51 +25,155 @@
             @if (status.IsConfigured)
             {
                 <p class="mb-0">
-                    Robobooth devices will be provisioned for <strong>@status.NetworkName</strong> when they connect.
-                    The saved password is never displayed.
+                    New Robobooth connections will be provisioned for <strong>@status.NetworkName</strong>.
+                    Any saved password is never displayed.
                 </p>
             }
             else
             {
-                <p class="mb-0">
-                    Save a network before connecting to a Robobooth device over Bluetooth.
-                </p>
+                <p class="mb-0">Select and save a network before connecting to a Robobooth device over Bluetooth.</p>
+            }
+        </div>
+    </section>
+
+    @if (ConnectedNetwork is not null)
+    {
+        <section class="connected-summary mb-4" aria-label="This computer's current Wi-Fi connection">
+            <span class="connection-dot" aria-hidden="true"></span>
+            <div>
+                <span class="connected-eyebrow">This computer is connected to</span>
+                <strong>@ConnectedNetwork.NetworkName</strong>
+            </div>
+        </section>
+    }
+
+    <section class="card mb-4" aria-labelledby="available-networks-heading">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <div>
+                    <h2 id="available-networks-heading" class="h5 mb-1">Available networks</h2>
+                    <p class="small text-secondary mb-0">The current connection is always listed first.</p>
+                </div>
+                <button class="btn btn-outline-primary"
+                        type="button"
+                        disabled="@isScanning"
+                        @onclick="RefreshNetworksAsync">
+                    @if (isScanning)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <span>Scan again</span>
+                    }
+                </button>
+            </div>
+
+            @if (isScanning && networks.Count == 0)
+            {
+                <div class="scan-placeholder" role="status">
+                    <span class="spinner-border text-primary" aria-hidden="true"></span>
+                    <span>Asking Windows for nearby Wi-Fi networks...</span>
+                </div>
+            }
+            else if (networks.Count > 0)
+            {
+                <div class="network-list" role="list" aria-label="Available Wi-Fi networks">
+                    @foreach (var network in networks)
+                    {
+                        var isSelected = selectedNetwork?.NetworkName == network.NetworkName;
+                        var isSavedTarget = status.IsConfigured && status.NetworkName == network.NetworkName;
+
+                        <button class="network-option @(isSelected ? "selected" : null)"
+                                type="button"
+                                role="listitem"
+                                aria-pressed="@isSelected"
+                                @onclick="() => SelectNetwork(network)">
+                            <span class="selection-indicator" aria-hidden="true"></span>
+                            <span class="network-details">
+                                <span class="network-name-row">
+                                    <strong class="network-name">@network.NetworkName</strong>
+                                    @if (network.IsConnected)
+                                    {
+                                        <span class="badge text-bg-success">Connected to this PC</span>
+                                    }
+                                    @if (isSavedTarget)
+                                    {
+                                        <span class="badge text-bg-primary">Saved target</span>
+                                    }
+                                </span>
+                                <span class="network-metadata">
+                                    <span>@network.SecurityLabel</span>
+                                    <span aria-hidden="true">·</span>
+                                    <span>@network.SignalQuality% signal</span>
+                                </span>
+                            </span>
+                            <span class="signal-bars" aria-label="Signal strength @network.SignalQuality percent">
+                                @for (var bar = 1; bar <= 4; bar++)
+                                {
+                                    <span class="@(SignalBars(network.SignalQuality) >= bar ? "active" : null)" aria-hidden="true"></span>
+                                }
+                            </span>
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-secondary mb-0">No Wi-Fi networks are available yet. Select <strong>Scan again</strong> to retry.</p>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(scanMessage))
+            {
+                <div class="alert @(networks.Count > 0 ? "alert-warning" : "alert-danger") mt-3 mb-0" role="status">
+                    @scanMessage
+                </div>
             }
         </div>
     </section>
 
     <section class="card" aria-labelledby="wifi-form-heading">
         <div class="card-body">
-            <h2 id="wifi-form-heading" class="h5">@(status.IsConfigured ? "Replace Wi-Fi credentials" : "Set Wi-Fi credentials")</h2>
+            <h2 id="wifi-form-heading" class="h5">Set the Robobooth target</h2>
 
-            <div class="row g-3 mt-1">
-                <div class="col-12 col-md-7">
-                    <label for="network-name" class="form-label">Network name (SSID)</label>
-                    <input id="network-name"
-                           class="form-control"
-                           type="text"
-                           maxlength="32"
-                           autocomplete="off"
-                           @bind="networkName"
-                           @bind:event="oninput" />
+            @if (selectedNetwork is null)
+            {
+                <p class="text-secondary mb-0">Select a network from the list above.</p>
+            }
+            else
+            {
+                <div class="selected-network-summary mb-3">
+                    <span class="small text-secondary">Selected network</span>
+                    <strong>@selectedNetwork.NetworkName</strong>
+                    <span class="small text-secondary">@selectedNetwork.SecurityLabel</span>
                 </div>
 
-                <div class="col-12 col-md-7">
-                    <label for="network-password" class="form-label">Wi-Fi password</label>
-                    <input id="network-password"
-                           class="form-control"
-                           type="password"
-                           minlength="8"
-                           maxlength="64"
-                           autocomplete="off"
-                           @bind="password"
-                           @bind:event="oninput" />
-                    <div class="form-text">Use an 8–63-byte WPA/WPA2 passphrase or a 64-digit hexadecimal key.</div>
-                </div>
+                @if (selectedNetwork.RequiresPassword)
+                {
+                    <div class="mb-3 form-field-width">
+                        <label for="network-password" class="form-label">Wi-Fi password</label>
+                        <input id="network-password"
+                               class="form-control"
+                               type="password"
+                               minlength="8"
+                               maxlength="64"
+                               autocomplete="new-password"
+                               @bind="password"
+                               @bind:event="oninput" />
+                        <div class="form-text">Use an 8-63-byte WPA passphrase or a 64-digit hexadecimal key.</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info mb-3" role="status">
+                        <strong>No password needed.</strong> This is an open network and can be saved directly.
+                    </div>
+                }
 
-                <div class="col-12 d-flex flex-wrap gap-2">
+                <div class="d-flex flex-wrap gap-2">
                     <button class="btn btn-primary" type="button" @onclick="Save">
-                        Save Wi-Fi settings
+                        @(selectedNetwork.RequiresPassword ? "Save Wi-Fi settings" : "Use this open network")
                     </button>
 
                     @if (status.IsConfigured)
@@ -79,7 +183,7 @@
                         </button>
                     }
                 </div>
-            </div>
+            }
 
             @if (!string.IsNullOrWhiteSpace(operationMessage))
             {
@@ -93,14 +197,54 @@
 
 @code {
     private WifiConfigurationStatus status = new(false, null);
-    private string networkName = string.Empty;
+    private IReadOnlyList<WifiNetworkInfo> networks = [];
+    private WifiNetworkInfo? selectedNetwork;
     private string password = string.Empty;
+    private string? scanMessage;
     private string? operationMessage;
     private bool operationSucceeded;
+    private bool isScanning;
 
-    protected override void OnInitialized()
+    private WifiNetworkInfo? ConnectedNetwork => networks.FirstOrDefault(network => network.IsConnected);
+
+    protected override async Task OnInitializedAsync()
     {
         RefreshStatus();
+        await RefreshNetworksAsync();
+    }
+
+    private async Task RefreshNetworksAsync()
+    {
+        var previouslySelectedName = selectedNetwork?.NetworkName;
+        isScanning = true;
+        scanMessage = null;
+
+        try
+        {
+            var result = await WifiNetworks.ScanAsync();
+            networks = result.Networks
+                .OrderByDescending(network => network.IsConnected)
+                .ThenByDescending(network => network.SignalQuality)
+                .ThenBy(network => network.NetworkName, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            scanMessage = result.Message;
+
+            selectedNetwork = FindNetwork(previouslySelectedName) ??
+                FindNetwork(status.NetworkName) ??
+                ConnectedNetwork;
+            password = string.Empty;
+        }
+        finally
+        {
+            isScanning = false;
+        }
+    }
+
+    private void SelectNetwork(WifiNetworkInfo network)
+    {
+        selectedNetwork = network;
+        password = string.Empty;
+        operationMessage = null;
     }
 
     private void Save()
@@ -108,7 +252,20 @@
         operationMessage = null;
         operationSucceeded = false;
 
-        if (!WifiCredentialStore.TryValidate(networkName, password, out var validationMessage))
+        if (selectedNetwork is null)
+        {
+            operationMessage = "Select a Wi-Fi network first.";
+            return;
+        }
+
+        var passwordToSave = selectedNetwork.RequiresPassword ? password : string.Empty;
+        if (selectedNetwork.RequiresPassword && string.IsNullOrEmpty(passwordToSave))
+        {
+            operationMessage = "Enter the password for this secured Wi-Fi network.";
+            return;
+        }
+
+        if (!WifiCredentialStore.TryValidate(selectedNetwork.NetworkName, passwordToSave, out var validationMessage))
         {
             operationMessage = validationMessage;
             return;
@@ -116,11 +273,13 @@
 
         try
         {
-            WifiCredentials.Save(networkName, password);
+            WifiCredentials.Save(selectedNetwork.NetworkName, passwordToSave);
             password = string.Empty;
             RefreshStatus();
             operationSucceeded = true;
-            operationMessage = "Wi-Fi settings were saved securely. You can now connect to a Robobooth device.";
+            operationMessage = selectedNetwork.RequiresPassword
+                ? "Wi-Fi settings were saved securely. You can now connect to a Robobooth device."
+                : "The open network was saved. You can now connect to a Robobooth device.";
         }
         catch (Exception exception)
         {
@@ -133,7 +292,6 @@
         try
         {
             WifiCredentials.Delete();
-            networkName = string.Empty;
             password = string.Empty;
             RefreshStatus();
             operationSucceeded = true;
@@ -146,12 +304,23 @@
         }
     }
 
+    private WifiNetworkInfo? FindNetwork(string? networkName) =>
+        string.IsNullOrEmpty(networkName)
+            ? null
+            : networks.FirstOrDefault(
+                network => string.Equals(network.NetworkName, networkName, StringComparison.Ordinal));
+
     private void RefreshStatus()
     {
         status = WifiCredentials.GetStatus();
-        if (status.IsConfigured)
-        {
-            networkName = status.NetworkName ?? string.Empty;
-        }
     }
+
+    private static int SignalBars(int signalQuality) => signalQuality switch
+    {
+        >= 75 => 4,
+        >= 50 => 3,
+        >= 25 => 2,
+        > 0 => 1,
+        _ => 0
+    };
 }

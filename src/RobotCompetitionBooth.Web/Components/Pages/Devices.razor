@@ -1,0 +1,123 @@
+@page "/devices"
+@implements IDisposable
+@inject RobotDeviceStateService DeviceState
+@inject MqttBrokerEndpointProvider BrokerEndpoint
+
+<PageTitle>Live devices</PageTitle>
+
+<div class="devices-page">
+    <div class="mb-4">
+        <h1>Live devices</h1>
+        <p class="text-secondary mb-0">
+            Colour updates sent by Robobooth devices over the local Wi-Fi network appear here automatically.
+        </p>
+    </div>
+
+    <section class="card broker-card mb-4" aria-labelledby="broker-heading">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <h2 id="broker-heading" class="h5 mb-0">Built-in MQTT receiver</h2>
+                <span class="badge text-bg-success">Running with this app</span>
+            </div>
+
+            @if (brokerSettings is not null)
+            {
+                <p class="mb-0">
+                    Devices are provisioned to send updates to
+                    <code>@brokerSettings.Host:@brokerSettings.Port</code>.
+                </p>
+            }
+            else
+            {
+                <div class="alert alert-warning mb-0" role="status">
+                    @brokerError
+                </div>
+            }
+        </div>
+    </section>
+
+    @if (devices.Count == 0)
+    {
+        <section class="empty-state" aria-labelledby="no-devices-heading">
+            <div class="empty-icon" aria-hidden="true">●</div>
+            <h2 id="no-devices-heading" class="h4">Waiting for a Robobooth device</h2>
+            <p class="text-secondary mb-0">
+                Save the Wi-Fi settings, then connect to a device from the Bluetooth page. Its name and live colour
+                will appear as soon as it joins Wi-Fi and publishes its first update.
+            </p>
+        </section>
+    }
+    else
+    {
+        <div class="device-grid" aria-live="polite">
+            @foreach (var device in devices)
+            {
+                <article class="card device-card">
+                    <div class="card-body">
+                        <div class="device-heading">
+                            <div>
+                                <h2 class="h4 mb-1">@device.DeviceName</h2>
+                                <code class="device-id">@device.DeviceId</code>
+                            </div>
+                            <span class="badge rounded-pill @(device.IsOnline ? "text-bg-success" : "text-bg-secondary")">
+                                @(device.IsOnline ? "Online" : "Offline")
+                            </span>
+                        </div>
+
+                        <div class="colour-display">
+                            <div class="colour-swatch"
+                                 style="background-color: @device.ColorHex"
+                                 aria-label="Latest colour @device.ColorHex"></div>
+                            <div>
+                                <div class="text-secondary small">Last received colour</div>
+                                <div class="colour-value">@device.ColorHex</div>
+                            </div>
+                        </div>
+
+                        <dl class="device-details mb-0">
+                            <dt>Last update</dt>
+                            <dd>@FormatLastReceived(device.LastReceived)</dd>
+                            <dt>Sequence</dt>
+                            <dd>@device.Sequence</dd>
+                        </dl>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<RobotDeviceState> devices = [];
+    private MqttProvisioningSettings? brokerSettings;
+    private string? brokerError;
+
+    protected override void OnInitialized()
+    {
+        DeviceState.StateChanged += HandleStateChanged;
+        RefreshDevices();
+
+        try
+        {
+            brokerSettings = BrokerEndpoint.GetProvisioningSettings();
+        }
+        catch (Exception exception)
+        {
+            brokerError = $"The MQTT endpoint cannot be advertised to devices: {exception.Message}";
+        }
+    }
+
+    private void HandleStateChanged(object? sender, EventArgs eventArgs) =>
+        _ = InvokeAsync(() =>
+        {
+            RefreshDevices();
+            StateHasChanged();
+        });
+
+    private void RefreshDevices() => devices = DeviceState.GetDevices();
+
+    private static string FormatLastReceived(DateTimeOffset? receivedAt) =>
+        receivedAt?.ToLocalTime().ToString("G") ?? "No colour received yet";
+
+    public void Dispose() => DeviceState.StateChanged -= HandleStateChanged;
+}

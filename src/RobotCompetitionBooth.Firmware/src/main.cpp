@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <esp32-hal-rgb-led.h>
-#include <WiFi.h>
+#include <MQTT.h>
 #include <NimBLEDevice.h>
+#include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
@@ -12,6 +13,7 @@
 namespace {
 
 constexpr char DeviceName[] = "RobotBooth-ESP32S3";
+constexpr char MqttUsername[] = "robobooth";
 
 // BLE passkeys are six digits. The requested three-digit code is represented
 // with leading zeroes in pairing dialogs: enter 000123.
@@ -19,36 +21,118 @@ constexpr uint32_t PairingPasskey = 123;
 
 constexpr char ServiceUuid[] = "8ddf7a40-7520-4e57-9e32-9b6b091c5c8b";
 constexpr char StatusCharacteristicUuid[] = "f6eb0c76-11a6-4a5f-a58d-6b55d94ff31a";
-constexpr char WifiProvisioningCharacteristicUuid[] = "0a7c0061-88a4-43cc-a010-faf7595da303";
-constexpr char WifiStatusCharacteristicUuid[] = "0a7c0062-88a4-43cc-a010-faf7595da303";
+constexpr char ProvisioningCharacteristicUuid[] = "0a7c0061-88a4-43cc-a010-faf7595da303";
+constexpr char ProvisioningStatusCharacteristicUuid[] = "0a7c0062-88a4-43cc-a010-faf7595da303";
 
-constexpr uint8_t ProvisioningProtocolVersion = 1;
+constexpr uint8_t ProvisioningProtocolVersion = 2;
 constexpr uint8_t ProvisioningStartCommand = 1;
 constexpr uint8_t ProvisioningDataCommand = 2;
 constexpr uint8_t ProvisioningCommitCommand = 3;
 constexpr size_t MaximumSsidLength = 32;
-constexpr size_t MinimumPasswordLength = 8;
-constexpr size_t MaximumPasswordLength = 64;
-constexpr unsigned long WifiConnectionTimeoutMs = 20000;
+constexpr size_t MinimumWifiPasswordLength = 8;
+constexpr size_t MaximumWifiPasswordLength = 64;
+constexpr size_t MaximumMqttHostLength = 63;
+constexpr size_t MqttPasswordLength = 64;
+constexpr unsigned long InitialWifiConnectionTimeoutMs = 20000;
+constexpr unsigned long InitialMqttConnectionTimeoutMs = 15000;
+constexpr unsigned long MqttReconnectIntervalMs = 3000;
+constexpr unsigned long ColorPublishIntervalMs = 1000;
+constexpr unsigned long LedAnimationPeriodMs = 18000;
+constexpr unsigned long LedRefreshIntervalMs = 30;
+constexpr uint8_t LedBrightness = 28;
 
-struct WifiCredentialsMessage {
+struct ProvisioningMessage {
     char ssid[MaximumSsidLength + 1];
-    char password[MaximumPasswordLength + 1];
+    char wifiPassword[MaximumWifiPasswordLength + 1];
+    char mqttHost[MaximumMqttHostLength + 1];
+    char mqttPassword[MqttPasswordLength + 1];
+    uint16_t mqttPort;
 };
 
-NimBLECharacteristic* wifiStatusCharacteristic = nullptr;
-QueueHandle_t wifiCredentialQueue = nullptr;
-bool wifiConnecting = false;
-unsigned long wifiConnectionStartedAt = 0;
+struct RgbColor {
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+};
 
-void setWifiStatus(const char* status) {
-    if (wifiStatusCharacteristic != nullptr) {
-        wifiStatusCharacteristic->setValue(status);
+NimBLECharacteristic* provisioningStatusCharacteristic = nullptr;
+QueueHandle_t provisioningQueue = nullptr;
+WiFiClient wifiClient;
+MQTTClient mqttClient(256);
+
+char deviceId[32]{};
+char colorTopic[128]{};
+char statusTopic[128]{};
+char mqttHost[MaximumMqttHostLength + 1]{};
+char mqttPassword[MqttPasswordLength + 1]{};
+uint16_t mqttPort = 0;
+
+bool mqttConfigured = false;
+bool wifiWasConnected = false;
+bool initialWifiConnection = false;
+bool mqttFailureReported = false;
+unsigned long wifiConnectionStartedAt = 0;
+unsigned long mqttConnectionStartedAt = 0;
+unsigned long lastMqttConnectAttemptAt = 0;
+unsigned long lastColorPublishedAt = 0;
+unsigned long lastLedRefreshAt = 0;
+uint32_t colorSequence = 0;
+RgbColor currentColor{255, 0, 0};
+
+void setProvisioningStatus(const char* status) {
+    if (provisioningStatusCharacteristic != nullptr) {
+        provisioningStatusCharacteristic->setValue(status);
     }
 }
 
 void showStatus(uint8_t red, uint8_t green, uint8_t blue) {
     neopixelWrite(RGB_BUILTIN, red, green, blue);
+}
+
+bool isAsciiHex(uint8_t character) {
+    return (character >= '0' && character <= '9') ||
+        (character >= 'a' && character <= 'f') ||
+        (character >= 'A' && character <= 'F');
+}
+
+RgbColor colorForTime(unsigned long now) {
+    const uint32_t wheelPosition =
+        (static_cast<uint64_t>(now % LedAnimationPeriodMs) * 768) / LedAnimationPeriodMs;
+
+    if (wheelPosition < 256) {
+        return {
+            static_cast<uint8_t>(255 - wheelPosition),
+            static_cast<uint8_t>(wheelPosition),
+            0};
+    }
+
+    if (wheelPosition < 512) {
+        const uint16_t offset = wheelPosition - 256;
+        return {
+            0,
+            static_cast<uint8_t>(255 - offset),
+            static_cast<uint8_t>(offset)};
+    }
+
+    const uint16_t offset = wheelPosition - 512;
+    return {
+        static_cast<uint8_t>(offset),
+        0,
+        static_cast<uint8_t>(255 - offset)};
+}
+
+void updateLedAnimation() {
+    const unsigned long now = millis();
+    if (now - lastLedRefreshAt < LedRefreshIntervalMs) {
+        return;
+    }
+
+    lastLedRefreshAt = now;
+    currentColor = colorForTime(now);
+    showStatus(
+        static_cast<uint8_t>((static_cast<uint16_t>(currentColor.red) * LedBrightness) / 255),
+        static_cast<uint8_t>((static_cast<uint16_t>(currentColor.green) * LedBrightness) / 255),
+        static_cast<uint8_t>((static_cast<uint16_t>(currentColor.blue) * LedBrightness) / 255));
 }
 
 class ServerCallbacks final : public NimBLEServerCallbacks {
@@ -95,42 +179,62 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
 
 ServerCallbacks serverCallbacks;
 
-class WifiProvisioningCallbacks final : public NimBLECharacteristicCallbacks {
+class ProvisioningCallbacks final : public NimBLECharacteristicCallbacks {
     size_t expectedSsidLength = 0;
-    size_t expectedPasswordLength = 0;
+    size_t expectedWifiPasswordLength = 0;
+    size_t expectedMqttHostLength = 0;
+    size_t expectedMqttPasswordLength = 0;
+    uint16_t expectedMqttPort = 0;
     std::vector<uint8_t> payload;
 
     void resetPayload() {
         std::fill(payload.begin(), payload.end(), 0);
         payload.clear();
         expectedSsidLength = 0;
-        expectedPasswordLength = 0;
+        expectedWifiPasswordLength = 0;
+        expectedMqttHostLength = 0;
+        expectedMqttPasswordLength = 0;
+        expectedMqttPort = 0;
     }
 
     void rejectPayload() {
         resetPayload();
-        setWifiStatus("invalid");
+        setProvisioningStatus("invalid");
     }
 
     void startPayload(const uint8_t* data, size_t length) {
-        if (length != 4) {
+        if (length != 8) {
             rejectPayload();
             return;
         }
 
         expectedSsidLength = data[2];
-        expectedPasswordLength = data[3];
+        expectedWifiPasswordLength = data[3];
+        expectedMqttHostLength = data[4];
+        expectedMqttPasswordLength = data[5];
+        expectedMqttPort = static_cast<uint16_t>(data[6]) |
+            (static_cast<uint16_t>(data[7]) << 8);
+
         if (expectedSsidLength == 0 ||
             expectedSsidLength > MaximumSsidLength ||
-            expectedPasswordLength < MinimumPasswordLength ||
-            expectedPasswordLength > MaximumPasswordLength) {
+            (expectedWifiPasswordLength != 0 &&
+             expectedWifiPasswordLength < MinimumWifiPasswordLength) ||
+            expectedWifiPasswordLength > MaximumWifiPasswordLength ||
+            expectedMqttHostLength == 0 ||
+            expectedMqttHostLength > MaximumMqttHostLength ||
+            expectedMqttPasswordLength != MqttPasswordLength ||
+            expectedMqttPort == 0) {
             rejectPayload();
             return;
         }
 
         payload.clear();
-        payload.reserve(expectedSsidLength + expectedPasswordLength);
-        setWifiStatus("receiving");
+        payload.reserve(
+            expectedSsidLength +
+            expectedWifiPasswordLength +
+            expectedMqttHostLength +
+            expectedMqttPasswordLength);
+        setProvisioningStatus("receiving");
     }
 
     void appendPayload(const uint8_t* data, size_t length) {
@@ -142,7 +246,11 @@ class WifiProvisioningCallbacks final : public NimBLECharacteristicCallbacks {
         const size_t offset = static_cast<size_t>(data[2]) |
             (static_cast<size_t>(data[3]) << 8);
         const size_t chunkLength = length - 4;
-        const size_t expectedLength = expectedSsidLength + expectedPasswordLength;
+        const size_t expectedLength =
+            expectedSsidLength +
+            expectedWifiPasswordLength +
+            expectedMqttHostLength +
+            expectedMqttPasswordLength;
         if (offset != payload.size() || payload.size() + chunkLength > expectedLength) {
             rejectPayload();
             return;
@@ -152,42 +260,68 @@ class WifiProvisioningCallbacks final : public NimBLECharacteristicCallbacks {
     }
 
     void commitPayload(size_t length) {
-        const size_t expectedLength = expectedSsidLength + expectedPasswordLength;
+        const size_t expectedLength =
+            expectedSsidLength +
+            expectedWifiPasswordLength +
+            expectedMqttHostLength +
+            expectedMqttPasswordLength;
         if (length != 2 || expectedSsidLength == 0 || payload.size() != expectedLength ||
             std::find(payload.begin(), payload.end(), 0) != payload.end() ||
-            wifiCredentialQueue == nullptr) {
+            provisioningQueue == nullptr) {
             rejectPayload();
             return;
         }
 
-        const auto passwordStart = payload.begin() + expectedSsidLength;
-        const bool invalidRawPsk = expectedPasswordLength == MaximumPasswordLength &&
-            std::any_of(passwordStart, payload.end(), [](uint8_t character) {
-                return !((character >= '0' && character <= '9') ||
-                    (character >= 'a' && character <= 'f') ||
-                    (character >= 'A' && character <= 'F'));
+        const auto wifiPasswordStart = payload.begin() + expectedSsidLength;
+        const auto mqttHostStart = wifiPasswordStart + expectedWifiPasswordLength;
+        const auto mqttPasswordStart = mqttHostStart + expectedMqttHostLength;
+
+        const bool invalidRawWifiKey = expectedWifiPasswordLength == MaximumWifiPasswordLength &&
+            std::any_of(wifiPasswordStart, mqttHostStart, [](uint8_t character) {
+                return !isAsciiHex(character);
             });
-        if (invalidRawPsk) {
+        const bool invalidMqttHost = std::any_of(
+            mqttHostStart,
+            mqttPasswordStart,
+            [](uint8_t character) {
+                return character < 33 || character > 126;
+            });
+        const bool invalidMqttPassword = std::any_of(
+            mqttPasswordStart,
+            payload.end(),
+            [](uint8_t character) {
+                return !isAsciiHex(character);
+            });
+        if (invalidRawWifiKey || invalidMqttHost || invalidMqttPassword) {
             rejectPayload();
             return;
         }
 
-        WifiCredentialsMessage credentials{};
-        std::memcpy(credentials.ssid, payload.data(), expectedSsidLength);
+        ProvisioningMessage settings{};
+        std::memcpy(settings.ssid, payload.data(), expectedSsidLength);
         std::memcpy(
-            credentials.password,
+            settings.wifiPassword,
             payload.data() + expectedSsidLength,
-            expectedPasswordLength);
+            expectedWifiPasswordLength);
+        std::memcpy(
+            settings.mqttHost,
+            payload.data() + expectedSsidLength + expectedWifiPasswordLength,
+            expectedMqttHostLength);
+        std::memcpy(
+            settings.mqttPassword,
+            payload.data() + expectedSsidLength + expectedWifiPasswordLength + expectedMqttHostLength,
+            expectedMqttPasswordLength);
+        settings.mqttPort = expectedMqttPort;
 
-        if (xQueueOverwrite(wifiCredentialQueue, &credentials) != pdPASS) {
-            std::memset(&credentials, 0, sizeof(credentials));
+        if (xQueueOverwrite(provisioningQueue, &settings) != pdPASS) {
+            std::memset(&settings, 0, sizeof(settings));
             rejectPayload();
             return;
         }
 
-        std::memset(&credentials, 0, sizeof(credentials));
+        std::memset(&settings, 0, sizeof(settings));
         resetPayload();
-        setWifiStatus("queued");
+        setProvisioningStatus("queued");
     }
 
     void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo&) override {
@@ -214,49 +348,147 @@ class WifiProvisioningCallbacks final : public NimBLECharacteristicCallbacks {
     }
 };
 
-WifiProvisioningCallbacks wifiProvisioningCallbacks;
+ProvisioningCallbacks provisioningCallbacks;
 
-void startPendingWifiConnection() {
-    if (wifiCredentialQueue == nullptr) {
+void publishColor(bool force = false) {
+    if (!mqttClient.connected()) {
         return;
     }
 
-    WifiCredentialsMessage credentials{};
-    if (xQueueReceive(wifiCredentialQueue, &credentials, 0) != pdPASS) {
+    const unsigned long now = millis();
+    if (!force && now - lastColorPublishedAt < ColorPublishIntervalMs) {
         return;
     }
 
-    WiFi.disconnect(false, true);
-    WiFi.begin(credentials.ssid, credentials.password);
-    std::memset(&credentials, 0, sizeof(credentials));
+    lastColorPublishedAt = now;
+    char payload[160]{};
+    snprintf(
+        payload,
+        sizeof(payload),
+        "{\"name\":\"%s\",\"rgb\":\"#%02X%02X%02X\",\"sequence\":%lu}",
+        DeviceName,
+        currentColor.red,
+        currentColor.green,
+        currentColor.blue,
+        static_cast<unsigned long>(colorSequence++));
 
-    wifiConnecting = true;
-    wifiConnectionStartedAt = millis();
-    setWifiStatus("connecting");
-    showStatus(16, 16, 0);
-    Serial.println("Received Wi-Fi credentials over authenticated BLE; connecting.");
+    if (!mqttClient.publish(colorTopic, payload, true, 1)) {
+        Serial.println("Could not publish the current colour over MQTT.");
+    }
 }
 
-void updateWifiConnectionStatus() {
-    if (!wifiConnecting) {
+void configureMqttClient() {
+    mqttClient.begin(mqttHost, mqttPort, wifiClient);
+    mqttClient.setOptions(15, true, 1000);
+    mqttClient.setWill(statusTopic, "offline", true, 1);
+    mqttConnectionStartedAt = millis();
+    lastMqttConnectAttemptAt = 0;
+    mqttFailureReported = false;
+    setProvisioningStatus("mqtt-connecting");
+}
+
+void tryConnectMqtt() {
+    if (!mqttConfigured || WiFi.status() != WL_CONNECTED || mqttClient.connected()) {
         return;
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-        wifiConnecting = false;
-        setWifiStatus("connected");
-        showStatus(0, 0, 24);
-        Serial.println("Wi-Fi connection established.");
+    const unsigned long now = millis();
+    if (lastMqttConnectAttemptAt != 0 &&
+        now - lastMqttConnectAttemptAt < MqttReconnectIntervalMs) {
         return;
     }
 
-    if (millis() - wifiConnectionStartedAt >= WifiConnectionTimeoutMs) {
-        wifiConnecting = false;
-        WiFi.disconnect(false, true);
-        setWifiStatus("failed");
-        showStatus(0, 24, 0);
-        Serial.println("Wi-Fi connection failed; credentials were discarded.");
+    lastMqttConnectAttemptAt = now;
+    if (mqttClient.connect(deviceId, MqttUsername, mqttPassword)) {
+        mqttFailureReported = false;
+        setProvisioningStatus("mqtt-connected");
+        mqttClient.publish(statusTopic, "online", true, 1);
+        publishColor(true);
+        Serial.println("Connected to the embedded MQTT broker.");
+        return;
     }
+
+    if (!mqttFailureReported && now - mqttConnectionStartedAt >= InitialMqttConnectionTimeoutMs) {
+        mqttFailureReported = true;
+        setProvisioningStatus("mqtt-failed");
+        Serial.println("Could not connect to the embedded MQTT broker; retrying in the background.");
+    }
+}
+
+void startPendingProvisioning() {
+    if (provisioningQueue == nullptr) {
+        return;
+    }
+
+    ProvisioningMessage settings{};
+    if (xQueueReceive(provisioningQueue, &settings, 0) != pdPASS) {
+        return;
+    }
+
+    if (mqttClient.connected()) {
+        mqttClient.publish(statusTopic, "offline", true, 1);
+        mqttClient.disconnect();
+    }
+
+    std::memset(mqttHost, 0, sizeof(mqttHost));
+    std::memset(mqttPassword, 0, sizeof(mqttPassword));
+    std::memcpy(mqttHost, settings.mqttHost, sizeof(mqttHost));
+    std::memcpy(mqttPassword, settings.mqttPassword, sizeof(mqttPassword));
+    mqttPort = settings.mqttPort;
+    mqttConfigured = true;
+    wifiWasConnected = false;
+
+    WiFi.disconnect(false, true);
+    if (settings.wifiPassword[0] == '\0')
+    {
+        WiFi.begin(settings.ssid);
+    }
+    else
+    {
+        WiFi.begin(settings.ssid, settings.wifiPassword);
+    }
+    std::memset(&settings, 0, sizeof(settings));
+
+    initialWifiConnection = true;
+    wifiConnectionStartedAt = millis();
+    setProvisioningStatus("wifi-connecting");
+    Serial.println("Received Wi-Fi and MQTT settings over authenticated BLE; connecting.");
+}
+
+void updateNetworkConnections() {
+    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    if (!wifiConnected) {
+        if (wifiWasConnected) {
+            wifiWasConnected = false;
+            setProvisioningStatus("wifi-connecting");
+            Serial.println("Wi-Fi connection was lost; waiting for automatic reconnection.");
+        }
+
+        if (initialWifiConnection &&
+            millis() - wifiConnectionStartedAt >= InitialWifiConnectionTimeoutMs) {
+            initialWifiConnection = false;
+            mqttConfigured = false;
+            mqttPort = 0;
+            std::memset(mqttHost, 0, sizeof(mqttHost));
+            std::memset(mqttPassword, 0, sizeof(mqttPassword));
+            WiFi.disconnect(false, true);
+            setProvisioningStatus("wifi-failed");
+            Serial.println("Wi-Fi connection failed; provisioned settings were discarded.");
+        }
+
+        return;
+    }
+
+    if (!wifiWasConnected) {
+        wifiWasConnected = true;
+        initialWifiConnection = false;
+        configureMqttClient();
+        Serial.println("Wi-Fi connection established; connecting to MQTT.");
+    }
+
+    mqttClient.loop();
+    tryConnectMqtt();
+    publishColor();
 }
 
 } // namespace
@@ -268,19 +500,29 @@ void setup() {
     delay(500);
 
     Serial.println();
-    Serial.println("Starting Robot Competition Booth BLE peripheral...");
+    Serial.println("Starting Robot Competition Booth firmware...");
     Serial.printf("Detected PSRAM: %u bytes\n", ESP.getPsramSize());
 
-    // Wi-Fi credentials are provisioned for each BLE connection and kept only
-    // in RAM on this board. The server computer owns their secure persistence.
+    const uint64_t chipId = ESP.getEfuseMac() & 0xFFFFFFFFFFFFULL;
+    snprintf(
+        deviceId,
+        sizeof(deviceId),
+        "robotbooth-%012llx",
+        static_cast<unsigned long long>(chipId));
+    snprintf(colorTopic, sizeof(colorTopic), "robobooth/v1/devices/%s/state/color", deviceId);
+    snprintf(statusTopic, sizeof(statusTopic), "robobooth/v1/devices/%s/status", deviceId);
+
+    // Provisioning values are kept only in RAM. The server computer owns their
+    // DPAPI-protected persistence and sends them again after every board restart.
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
     WiFi.disconnect(false, true);
 
-    wifiCredentialQueue = xQueueCreate(1, sizeof(WifiCredentialsMessage));
-    if (wifiCredentialQueue == nullptr) {
+    provisioningQueue = xQueueCreate(1, sizeof(ProvisioningMessage));
+    if (provisioningQueue == nullptr) {
         showStatus(24, 0, 0);
-        Serial.println("Failed to allocate the Wi-Fi credential queue. Restarting in 5 seconds.");
+        Serial.println("Failed to allocate the provisioning queue. Restarting in 5 seconds.");
         delay(5000);
         ESP.restart();
     }
@@ -306,17 +548,17 @@ void setup() {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_AUTHEN);
     statusCharacteristic->setValue("ready");
 
-    NimBLECharacteristic* wifiProvisioningCharacteristic = service->createCharacteristic(
-        WifiProvisioningCharacteristicUuid,
+    NimBLECharacteristic* provisioningCharacteristic = service->createCharacteristic(
+        ProvisioningCharacteristicUuid,
         NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_AUTHEN,
         20);
-    wifiProvisioningCharacteristic->setCallbacks(&wifiProvisioningCallbacks);
+    provisioningCharacteristic->setCallbacks(&provisioningCallbacks);
 
-    wifiStatusCharacteristic = service->createCharacteristic(
-        WifiStatusCharacteristicUuid,
+    provisioningStatusCharacteristic = service->createCharacteristic(
+        ProvisioningStatusCharacteristicUuid,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_AUTHEN,
         16);
-    wifiStatusCharacteristic->setValue("idle");
+    provisioningStatusCharacteristic->setValue("idle");
 
     if (!server->start()) {
         showStatus(24, 0, 0);
@@ -337,20 +579,13 @@ void setup() {
         ESP.restart();
     }
 
-    Serial.printf("Advertising as %s\n", DeviceName);
+    Serial.printf("Advertising as %s (%s)\n", DeviceName, deviceId);
     Serial.printf("Pair using passkey %06lu\n", static_cast<unsigned long>(PairingPasskey));
-    showStatus(0, 24, 0);
 }
 
 void loop() {
-    static bool startupConfirmed = false;
-    if (!startupConfirmed && millis() >= 3000) {
-        Serial.println("BLE firmware is running and advertising is active.");
-        startupConfirmed = true;
-    }
-
-    startPendingWifiConnection();
-    updateWifiConnectionStatus();
-
-    delay(100);
+    updateLedAnimation();
+    startPendingProvisioning();
+    updateNetworkConnections();
+    delay(10);
 }
