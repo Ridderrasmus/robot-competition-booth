@@ -22,37 +22,101 @@
     else
     {
         <header class="editor-header">
-            <div>
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <h1 class="mb-0">Program @device.DeviceName</h1>
-                    <span class="badge rounded-pill @(device.IsOnline ? "text-bg-success" : "text-bg-secondary")">
-                        @(device.IsOnline ? "Online" : "Offline")
-                    </span>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <h1 class="mb-0">Program @device.DeviceName</h1>
+                <span class="badge rounded-pill @(device.IsOnline ? "text-bg-success" : "text-bg-secondary")">
+                    @(device.IsOnline ? "Online" : "Offline")
+                </span>
+            </div>
+            <p class="text-secondary mb-0">
+                <code>@device.DeviceId</code> · Saved workspaces are kept separately for this robot.
+            </p>
+        </header>
+
+        <section class="workspace-toolbar" aria-label="Workspace files">
+            <div class="workspace-name-field">
+                <label class="form-label" for="workspace-name">Workspace file name</label>
+                <div class="input-group">
+                    <input id="workspace-name"
+                           class="form-control"
+                           maxlength="85"
+                           disabled="@(!workspaceReady || operationInProgress)"
+                           @bind="workspaceName"
+                           @bind:event="oninput" />
+                    <span class="input-group-text">.json</span>
                 </div>
-                <p class="text-secondary mb-0">
-                    <code>@device.DeviceId</code> · The workspace is stored on this booth computer for this device.
-                </p>
             </div>
 
             <div class="editor-actions">
                 <button class="btn btn-outline-secondary"
                         type="button"
-                        disabled="@(!workspaceReady || operationInProgress || !hasSavedWorkspace)"
-                        @onclick="ReloadAsync">
-                    Load saved
+                        disabled="@(!workspaceReady || operationInProgress)"
+                        @onclick="NewWorkspaceAsync">
+                    New
+                </button>
+                <button class="btn btn-outline-secondary"
+                        type="button"
+                        disabled="@(!workspaceReady || operationInProgress)"
+                        aria-expanded="@showSavedWorkspaces"
+                        aria-controls="saved-workspaces"
+                        @onclick="ToggleSavedWorkspacesAsync">
+                    Load workspace
+                    <span class="badge text-bg-secondary">@savedWorkspaces.Count</span>
                 </button>
                 <button class="btn btn-primary"
                         type="button"
                         disabled="@(!workspaceReady || operationInProgress)"
                         @onclick="SaveAsync">
-                    @if (operationInProgress)
+                    @if (saveInProgress)
                     {
                         <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
                     }
-                    Save workspace
+                    Save
                 </button>
             </div>
-        </header>
+        </section>
+
+        @if (showSavedWorkspaces)
+        {
+            <section id="saved-workspaces" class="card saved-workspaces-panel" aria-labelledby="saved-heading">
+                <div class="card-header saved-workspaces-heading">
+                    <div>
+                        <h2 id="saved-heading" class="h5 mb-0">Saved workspaces</h2>
+                        <span class="text-secondary small">Only files saved for @device.DeviceName are shown.</span>
+                    </div>
+                    <button class="btn-close"
+                            type="button"
+                            aria-label="Close saved workspaces"
+                            @onclick="CloseSavedWorkspaces"></button>
+                </div>
+
+                @if (savedWorkspaces.Count == 0)
+                {
+                    <div class="card-body text-secondary">
+                        No workspaces have been saved for this robot yet.
+                    </div>
+                }
+                else
+                {
+                    <div class="list-group list-group-flush saved-workspace-list">
+                        @foreach (var savedWorkspace in savedWorkspaces)
+                        {
+                            <button class="list-group-item list-group-item-action saved-workspace-row"
+                                    type="button"
+                                    disabled="@operationInProgress"
+                                    @onclick="() => LoadAsync(savedWorkspace)">
+                                <span class="saved-workspace-name">
+                                    <strong>@savedWorkspace.Name</strong><span class="text-secondary">.json</span>
+                                </span>
+                                <span class="saved-workspace-details">
+                                    Saved @FormatSavedAt(savedWorkspace.LastSavedAt)
+                                </span>
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+        }
 
         @if (!string.IsNullOrWhiteSpace(statusMessage))
         {
@@ -74,8 +138,8 @@
         </section>
 
         <p class="upload-note mb-0">
-            Uploading programs to the device will be added later. For now, save keeps this Blockly workspace on the
-            server so you can return to it.
+            Uploading programs to the device will be added later. For now, each named workspace is saved on the
+            server under this robot's device ID.
         </p>
     }
 </div>
@@ -88,12 +152,15 @@
 
     private RobotDeviceState? device;
     private IJSObjectReference? workspaceModule;
+    private IReadOnlyList<SavedDeviceWorkspaceInfo> savedWorkspaces = [];
     private string? initializedDeviceId;
+    private string workspaceName = "Program 1";
     private string? statusMessage;
     private bool statusIsError;
     private bool workspaceReady;
     private bool operationInProgress;
-    private bool hasSavedWorkspace;
+    private bool saveInProgress;
+    private bool showSavedWorkspaces;
 
     protected override void OnParametersSet()
     {
@@ -111,7 +178,8 @@
         initializedDeviceId = DeviceId;
         statusMessage = null;
         statusIsError = false;
-        hasSavedWorkspace = false;
+        showSavedWorkspaces = false;
+        savedWorkspaces = [];
 
         try
         {
@@ -122,12 +190,16 @@
             SavedDeviceWorkspace? savedWorkspace = null;
             try
             {
-                savedWorkspace = await ProgramStore.LoadAsync(DeviceId);
-                hasSavedWorkspace = savedWorkspace is not null;
+                await RefreshSavedWorkspacesAsync();
+                var mostRecentWorkspace = savedWorkspaces.FirstOrDefault();
+                if (mostRecentWorkspace is not null)
+                {
+                    savedWorkspace = await ProgramStore.LoadAsync(DeviceId, mostRecentWorkspace.Name);
+                }
             }
             catch (Exception exception)
             {
-                statusMessage = $"The saved workspace could not be loaded, so a blank workspace was opened: {exception.Message}";
+                statusMessage = $"Saved workspaces could not be read, so a blank workspace was opened: {exception.Message}";
                 statusIsError = true;
             }
 
@@ -138,8 +210,13 @@
 
             if (savedWorkspace is not null)
             {
-                statusMessage = $"Loaded the workspace saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
+                workspaceName = savedWorkspace.Name;
+                statusMessage = $"Loaded {savedWorkspace.Name}.json, saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
                 statusIsError = false;
+            }
+            else
+            {
+                workspaceName = GetNextWorkspaceName();
             }
 
             workspaceReady = true;
@@ -161,6 +238,7 @@
         }
 
         operationInProgress = true;
+        saveInProgress = true;
         statusMessage = null;
 
         try
@@ -168,9 +246,13 @@
             var workspaceJson = await workspaceModule.InvokeAsync<string>(
                 "save",
                 WorkspaceElementId);
-            var savedAt = await ProgramStore.SaveAsync(DeviceId, workspaceJson);
-            hasSavedWorkspace = true;
-            statusMessage = $"Workspace saved {FormatSavedAt(savedAt)}.";
+            var savedWorkspace = await ProgramStore.SaveAsync(
+                DeviceId,
+                workspaceName,
+                workspaceJson);
+            workspaceName = savedWorkspace.Name;
+            await RefreshSavedWorkspacesAsync();
+            statusMessage = $"Saved {savedWorkspace.Name}.json at {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
             statusIsError = false;
         }
         catch (Exception exception)
@@ -180,11 +262,12 @@
         }
         finally
         {
+            saveInProgress = false;
             operationInProgress = false;
         }
     }
 
-    private async Task ReloadAsync()
+    private async Task LoadAsync(SavedDeviceWorkspaceInfo workspaceInfo)
     {
         if (workspaceModule is null || !workspaceReady || operationInProgress)
         {
@@ -196,11 +279,11 @@
 
         try
         {
-            var savedWorkspace = await ProgramStore.LoadAsync(DeviceId);
+            var savedWorkspace = await ProgramStore.LoadAsync(DeviceId, workspaceInfo.Name);
             if (savedWorkspace is null)
             {
-                hasSavedWorkspace = false;
-                statusMessage = "There is no saved workspace for this device yet.";
+                await RefreshSavedWorkspacesAsync();
+                statusMessage = $"{workspaceInfo.Name}.json no longer exists.";
                 statusIsError = true;
                 return;
             }
@@ -209,7 +292,9 @@
                 "load",
                 WorkspaceElementId,
                 savedWorkspace.WorkspaceJson);
-            statusMessage = $"Loaded the workspace saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
+            workspaceName = savedWorkspace.Name;
+            showSavedWorkspaces = false;
+            statusMessage = $"Loaded {savedWorkspace.Name}.json, saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
             statusIsError = false;
         }
         catch (Exception exception)
@@ -220,6 +305,82 @@
         finally
         {
             operationInProgress = false;
+        }
+    }
+
+    private async Task NewWorkspaceAsync()
+    {
+        if (workspaceModule is null || !workspaceReady || operationInProgress)
+        {
+            return;
+        }
+
+        operationInProgress = true;
+        statusMessage = null;
+
+        try
+        {
+            await workspaceModule.InvokeVoidAsync("reset", WorkspaceElementId);
+            workspaceName = GetNextWorkspaceName();
+            showSavedWorkspaces = false;
+            statusMessage = "Opened a new blank workspace. Give it a name before saving.";
+            statusIsError = false;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"A new workspace could not be opened: {exception.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private async Task ToggleSavedWorkspacesAsync()
+    {
+        if (showSavedWorkspaces)
+        {
+            showSavedWorkspaces = false;
+            return;
+        }
+
+        operationInProgress = true;
+        statusMessage = null;
+
+        try
+        {
+            await RefreshSavedWorkspacesAsync();
+            showSavedWorkspaces = true;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"The saved workspace list could not be loaded: {exception.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private async Task RefreshSavedWorkspacesAsync() =>
+        savedWorkspaces = await ProgramStore.ListAsync(DeviceId);
+
+    private void CloseSavedWorkspaces() => showSavedWorkspaces = false;
+
+    private string GetNextWorkspaceName()
+    {
+        var existingNames = savedWorkspaces
+            .Select(workspace => workspace.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var number = 1; ; number++)
+        {
+            var candidate = $"Program {number}";
+            if (!existingNames.Contains(candidate))
+            {
+                return candidate;
+            }
         }
     }
 

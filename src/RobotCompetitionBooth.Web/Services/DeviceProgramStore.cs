@@ -7,7 +7,16 @@ public sealed class DeviceProgramStore
 {
     internal const int MaximumWorkspaceFileLength = 4 * 1024 * 1024;
 
+    private const int MaximumWorkspaceNameLength = 80;
+
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly HashSet<string> ReservedWindowsFileNames = new(
+        [
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        ],
+        StringComparer.OrdinalIgnoreCase);
 
     private readonly SemaphoreSlim storageLock = new(1, 1);
     private readonly string storageRootPath = Path.Combine(
@@ -15,11 +24,44 @@ public sealed class DeviceProgramStore
         "RobotCompetitionBooth",
         "device-programs");
 
-    public async Task<SavedDeviceWorkspace?> LoadAsync(
+    public async Task<IReadOnlyList<SavedDeviceWorkspaceInfo>> ListAsync(
         string deviceId,
         CancellationToken cancellationToken = default)
     {
-        var workspaceFilePath = GetWorkspaceFilePath(deviceId);
+        var deviceDirectoryPath = GetDeviceDirectoryPath(deviceId);
+
+        await storageLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!Directory.Exists(deviceDirectoryPath))
+            {
+                return [];
+            }
+
+            return Directory
+                .EnumerateFiles(deviceDirectoryPath, "*.json", SearchOption.TopDirectoryOnly)
+                .Select(path => new FileInfo(path))
+                .Select(file => new SavedDeviceWorkspaceInfo(
+                    Path.GetFileNameWithoutExtension(file.Name),
+                    new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero),
+                    file.Length))
+                .OrderByDescending(workspace => workspace.LastSavedAt)
+                .ThenBy(workspace => workspace.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        finally
+        {
+            storageLock.Release();
+        }
+    }
+
+    public async Task<SavedDeviceWorkspace?> LoadAsync(
+        string deviceId,
+        string workspaceName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = NormalizeWorkspaceName(workspaceName);
+        var workspaceFilePath = GetWorkspaceFilePath(deviceId, normalizedName);
 
         await storageLock.WaitAsync(cancellationToken);
         try
@@ -42,6 +84,7 @@ public sealed class DeviceProgramStore
             ValidateWorkspaceJson(workspaceJson);
 
             return new SavedDeviceWorkspace(
+                normalizedName,
                 workspaceJson,
                 new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero));
         }
@@ -51,13 +94,14 @@ public sealed class DeviceProgramStore
         }
     }
 
-    public async Task<DateTimeOffset> SaveAsync(
+    public async Task<SavedDeviceWorkspaceInfo> SaveAsync(
         string deviceId,
+        string workspaceName,
         string workspaceJson,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspaceJson);
-        ValidateDeviceId(deviceId);
+        var normalizedName = NormalizeWorkspaceName(workspaceName);
 
         if (StrictUtf8.GetByteCount(workspaceJson) is <= 0 or > MaximumWorkspaceFileLength)
         {
@@ -66,7 +110,7 @@ public sealed class DeviceProgramStore
 
         ValidateWorkspaceJson(workspaceJson);
 
-        var workspaceFilePath = GetWorkspaceFilePath(deviceId);
+        var workspaceFilePath = GetWorkspaceFilePath(deviceId, normalizedName);
         var deviceDirectoryPath = Path.GetDirectoryName(workspaceFilePath)
             ?? throw new InvalidOperationException("The device program directory could not be resolved.");
         var temporaryFilePath = Path.Combine(deviceDirectoryPath, $".{Guid.NewGuid():N}.tmp");
@@ -89,7 +133,11 @@ public sealed class DeviceProgramStore
                 File.Delete(temporaryFilePath);
             }
 
-            return new DateTimeOffset(File.GetLastWriteTimeUtc(workspaceFilePath), TimeSpan.Zero);
+            var fileInfo = new FileInfo(workspaceFilePath);
+            return new SavedDeviceWorkspaceInfo(
+                normalizedName,
+                new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero),
+                fileInfo.Length);
         }
         finally
         {
@@ -97,10 +145,48 @@ public sealed class DeviceProgramStore
         }
     }
 
-    private string GetWorkspaceFilePath(string deviceId)
+    private string GetWorkspaceFilePath(string deviceId, string normalizedWorkspaceName) =>
+        Path.Combine(GetDeviceDirectoryPath(deviceId), $"{normalizedWorkspaceName}.json");
+
+    private string GetDeviceDirectoryPath(string deviceId)
     {
         ValidateDeviceId(deviceId);
-        return Path.Combine(storageRootPath, deviceId, "workspace.json");
+        return Path.Combine(storageRootPath, deviceId);
+    }
+
+    private static string NormalizeWorkspaceName(string? workspaceName)
+    {
+        var normalizedName = workspaceName?.Trim() ?? string.Empty;
+        if (normalizedName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedName = normalizedName[..^5].TrimEnd();
+        }
+
+        if (normalizedName.Length is < 1 or > MaximumWorkspaceNameLength)
+        {
+            throw new ArgumentException(
+                $"The workspace name must be between 1 and {MaximumWorkspaceNameLength} characters.",
+                nameof(workspaceName));
+        }
+
+        if (normalizedName.EndsWith('.') ||
+            normalizedName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            normalizedName.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "The workspace name contains characters that cannot be used in a file name.",
+                nameof(workspaceName));
+        }
+
+        var firstNameSegment = normalizedName.Split('.', 2)[0];
+        if (ReservedWindowsFileNames.Contains(firstNameSegment))
+        {
+            throw new ArgumentException(
+                "The workspace name is reserved by Windows. Choose another name.",
+                nameof(workspaceName));
+        }
+
+        return normalizedName;
     }
 
     private static void ValidateDeviceId(string? deviceId)
@@ -132,6 +218,12 @@ public sealed class DeviceProgramStore
     }
 }
 
+public sealed record SavedDeviceWorkspaceInfo(
+    string Name,
+    DateTimeOffset LastSavedAt,
+    long FileSize);
+
 public sealed record SavedDeviceWorkspace(
+    string Name,
     string WorkspaceJson,
     DateTimeOffset LastSavedAt);

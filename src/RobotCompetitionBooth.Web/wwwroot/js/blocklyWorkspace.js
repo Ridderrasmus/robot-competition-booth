@@ -161,6 +161,13 @@ function getEntry(elementId) {
     return entry;
 }
 
+function addStarterBlock(workspace) {
+    const startBlock = workspace.newBlock("robot_start");
+    startBlock.initSvg();
+    startBlock.render();
+    startBlock.moveBy(40, 40);
+}
+
 export function create(elementId, initialStateJson) {
     dispose(elementId);
 
@@ -201,10 +208,7 @@ export function create(elementId, initialStateJson) {
     if (initialStateJson) {
         blockly.serialization.workspaces.load(JSON.parse(initialStateJson), workspace);
     } else {
-        const startBlock = workspace.newBlock("robot_start");
-        startBlock.initSvg();
-        startBlock.render();
-        startBlock.moveBy(40, 40);
+        addStarterBlock(workspace);
     }
 
     const resizeObserver = new ResizeObserver(() => blockly.svgResize(workspace));
@@ -222,7 +226,14 @@ export function save(elementId) {
 export function load(elementId, stateJson) {
     const blockly = getBlockly();
     const { workspace } = getEntry(elementId);
+    workspace.clear();
     blockly.serialization.workspaces.load(JSON.parse(stateJson), workspace);
+}
+
+export function reset(elementId) {
+    const { workspace } = getEntry(elementId);
+    workspace.clear();
+    addStarterBlock(workspace);
 }
 
 export function dispose(elementId) {
