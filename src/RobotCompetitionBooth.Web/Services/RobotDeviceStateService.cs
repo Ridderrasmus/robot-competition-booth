@@ -16,6 +16,9 @@ public sealed class RobotDeviceStateService
         .ThenBy(device => device.DeviceId, StringComparer.Ordinal)
         .ToArray();
 
+    public RobotDeviceState? GetDevice(string deviceId) =>
+        devices.GetValueOrDefault(deviceId);
+
     public void SetConnectionState(string deviceId, bool isOnline)
     {
         devices.AddOrUpdate(

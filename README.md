@@ -50,7 +50,10 @@ Selecting **Disconnect and forget** removes every saved `RobotBooth-*` pairing f
 
 ## Direction
 
-The initial connection and Wi-Fi/MQTT provisioning path uses authenticated Bluetooth Low Energy. Runtime colour telemetry uses the MQTT broker hosted inside the same Blazor executable. Blockly-based visual programming and a Python opcode compiler are planned but are not implemented yet.
+The initial connection and Wi-Fi/MQTT provisioning path uses authenticated Bluetooth Low Energy. Runtime colour
+telemetry uses the MQTT broker hosted inside the same Blazor executable. Blockly-based visual programming is
+available from each connected device and saves per-device workspaces on the server. Compiling and uploading those
+programs to the device are planned but are not implemented yet.
 
 ## License
 

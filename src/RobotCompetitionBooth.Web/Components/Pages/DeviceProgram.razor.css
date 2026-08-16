@@ -1,0 +1,90 @@
+.program-page {
+    display: flex;
+    min-height: calc(100vh - 7.5rem);
+    flex-direction: column;
+}
+
+.back-link {
+    align-self: flex-start;
+    margin-bottom: 1rem;
+    text-decoration: none;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.editor-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.editor-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.5rem;
+}
+
+.editor-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.status-message {
+    margin-bottom: 1rem;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+}
+
+.workspace-shell {
+    position: relative;
+    min-height: 32rem;
+    flex: 1 1 32rem;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: #f8f9fa;
+}
+
+.blockly-host {
+    position: absolute;
+    inset: 0;
+}
+
+.workspace-loading {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: var(--bs-secondary-color);
+    background: var(--bs-tertiary-bg);
+}
+
+.upload-note {
+    padding: 0.75rem 0 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.875rem;
+}
+
+@media (max-width: 768px) {
+    .editor-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .editor-actions .btn {
+        flex: 1;
+    }
+
+    .workspace-shell {
+        min-height: 28rem;
+    }
+}

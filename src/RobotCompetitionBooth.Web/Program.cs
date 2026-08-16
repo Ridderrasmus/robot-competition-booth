@@ -22,7 +22,9 @@ var builder = runsFromExtractedSingleFile
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddHubOptions(options =>
+        options.MaximumReceiveMessageSize = DeviceProgramStore.MaximumWorkspaceFileLength + (64 * 1024));
 builder.Services.Configure<EmbeddedMqttOptions>(
     builder.Configuration.GetSection(EmbeddedMqttOptions.SectionName));
 builder.Services.AddSingleton<BluetoothDiscoveryService>();
@@ -31,6 +33,7 @@ builder.Services.AddSingleton<WifiNetworkScanner>();
 builder.Services.AddSingleton<MqttBrokerAccessService>();
 builder.Services.AddSingleton<MqttBrokerEndpointProvider>();
 builder.Services.AddSingleton<RobotDeviceStateService>();
+builder.Services.AddSingleton<DeviceProgramStore>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
 builder.Services.AddHostedService<EmbeddedMqttBrokerService>();
 builder.Services.AddHostedService<BluetoothShutdownService>();

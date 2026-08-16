@@ -1,0 +1,246 @@
+@page "/devices/{DeviceId}/program"
+@implements IAsyncDisposable
+@inject DeviceProgramStore ProgramStore
+@inject RobotDeviceStateService DeviceState
+@inject IJSRuntime JavaScript
+
+<PageTitle>@(device is null ? "Device program" : $"Program {device.DeviceName}")</PageTitle>
+
+<div class="program-page">
+    <a class="back-link" href="/devices">← Back to live devices</a>
+
+    @if (device is null)
+    {
+        <section class="alert alert-warning mt-3" role="alert">
+            <h1 class="h4 alert-heading">Device not found</h1>
+            <p class="mb-0">
+                This device is not in the current connected-device list. Return to Live devices and select a device
+                from there.
+            </p>
+        </section>
+    }
+    else
+    {
+        <header class="editor-header">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h1 class="mb-0">Program @device.DeviceName</h1>
+                    <span class="badge rounded-pill @(device.IsOnline ? "text-bg-success" : "text-bg-secondary")">
+                        @(device.IsOnline ? "Online" : "Offline")
+                    </span>
+                </div>
+                <p class="text-secondary mb-0">
+                    <code>@device.DeviceId</code> · The workspace is stored on this booth computer for this device.
+                </p>
+            </div>
+
+            <div class="editor-actions">
+                <button class="btn btn-outline-secondary"
+                        type="button"
+                        disabled="@(!workspaceReady || operationInProgress || !hasSavedWorkspace)"
+                        @onclick="ReloadAsync">
+                    Load saved
+                </button>
+                <button class="btn btn-primary"
+                        type="button"
+                        disabled="@(!workspaceReady || operationInProgress)"
+                        @onclick="SaveAsync">
+                    @if (operationInProgress)
+                    {
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                    }
+                    Save workspace
+                </button>
+            </div>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            <div class="alert @(statusIsError ? "alert-danger" : "alert-success") status-message"
+                 role="@(statusIsError ? "alert" : "status")">
+                @statusMessage
+            </div>
+        }
+
+        <section class="workspace-shell" aria-label="Blockly program editor">
+            @if (!workspaceReady)
+            {
+                <div class="workspace-loading" role="status">
+                    <span class="spinner-border" aria-hidden="true"></span>
+                    <span>Opening Blockly…</span>
+                </div>
+            }
+            <div id="@WorkspaceElementId" class="blockly-host"></div>
+        </section>
+
+        <p class="upload-note mb-0">
+            Uploading programs to the device will be added later. For now, save keeps this Blockly workspace on the
+            server so you can return to it.
+        </p>
+    }
+</div>
+
+@code {
+    private const string WorkspaceElementId = "device-program-workspace";
+
+    [Parameter]
+    public string DeviceId { get; set; } = string.Empty;
+
+    private RobotDeviceState? device;
+    private IJSObjectReference? workspaceModule;
+    private string? initializedDeviceId;
+    private string? statusMessage;
+    private bool statusIsError;
+    private bool workspaceReady;
+    private bool operationInProgress;
+    private bool hasSavedWorkspace;
+
+    protected override void OnParametersSet()
+    {
+        device = DeviceState.GetDevice(DeviceId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (device is null || initializedDeviceId == DeviceId)
+        {
+            return;
+        }
+
+        workspaceReady = false;
+        initializedDeviceId = DeviceId;
+        statusMessage = null;
+        statusIsError = false;
+        hasSavedWorkspace = false;
+
+        try
+        {
+            workspaceModule ??= await JavaScript.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/blocklyWorkspace.js");
+
+            SavedDeviceWorkspace? savedWorkspace = null;
+            try
+            {
+                savedWorkspace = await ProgramStore.LoadAsync(DeviceId);
+                hasSavedWorkspace = savedWorkspace is not null;
+            }
+            catch (Exception exception)
+            {
+                statusMessage = $"The saved workspace could not be loaded, so a blank workspace was opened: {exception.Message}";
+                statusIsError = true;
+            }
+
+            await workspaceModule.InvokeVoidAsync(
+                "create",
+                WorkspaceElementId,
+                savedWorkspace?.WorkspaceJson);
+
+            if (savedWorkspace is not null)
+            {
+                statusMessage = $"Loaded the workspace saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
+                statusIsError = false;
+            }
+
+            workspaceReady = true;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"The Blockly workspace could not be opened: {exception.Message}";
+            statusIsError = true;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (workspaceModule is null || !workspaceReady || operationInProgress)
+        {
+            return;
+        }
+
+        operationInProgress = true;
+        statusMessage = null;
+
+        try
+        {
+            var workspaceJson = await workspaceModule.InvokeAsync<string>(
+                "save",
+                WorkspaceElementId);
+            var savedAt = await ProgramStore.SaveAsync(DeviceId, workspaceJson);
+            hasSavedWorkspace = true;
+            statusMessage = $"Workspace saved {FormatSavedAt(savedAt)}.";
+            statusIsError = false;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"The workspace could not be saved: {exception.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (workspaceModule is null || !workspaceReady || operationInProgress)
+        {
+            return;
+        }
+
+        operationInProgress = true;
+        statusMessage = null;
+
+        try
+        {
+            var savedWorkspace = await ProgramStore.LoadAsync(DeviceId);
+            if (savedWorkspace is null)
+            {
+                hasSavedWorkspace = false;
+                statusMessage = "There is no saved workspace for this device yet.";
+                statusIsError = true;
+                return;
+            }
+
+            await workspaceModule.InvokeVoidAsync(
+                "load",
+                WorkspaceElementId,
+                savedWorkspace.WorkspaceJson);
+            statusMessage = $"Loaded the workspace saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
+            statusIsError = false;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"The saved workspace could not be loaded: {exception.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private static string FormatSavedAt(DateTimeOffset savedAt) =>
+        savedAt.ToLocalTime().ToString("g");
+
+    public async ValueTask DisposeAsync()
+    {
+        if (workspaceModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await workspaceModule.InvokeVoidAsync("dispose", WorkspaceElementId);
+            await workspaceModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser circuit has already ended.
+        }
+    }
+}

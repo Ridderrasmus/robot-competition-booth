@@ -80,6 +80,11 @@
                             <dt>Sequence</dt>
                             <dd>@device.Sequence</dd>
                         </dl>
+
+                        <a class="btn btn-primary program-button"
+                           href="@GetProgramUrl(device.DeviceId)">
+                            Program device
+                        </a>
                     </div>
                 </article>
             }
@@ -115,6 +120,9 @@
         });
 
     private void RefreshDevices() => devices = DeviceState.GetDevices();
+
+    private static string GetProgramUrl(string deviceId) =>
+        $"/devices/{Uri.EscapeDataString(deviceId)}/program";
 
     private static string FormatLastReceived(DateTimeOffset? receivedAt) =>
         receivedAt?.ToLocalTime().ToString("G") ?? "No colour received yet";

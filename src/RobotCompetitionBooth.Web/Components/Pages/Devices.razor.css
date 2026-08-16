@@ -88,6 +88,11 @@
     text-align: right;
 }
 
+.program-button {
+    width: 100%;
+    margin-top: 1.25rem;
+}
+
 @media (max-width: 480px) {
     .colour-swatch {
         width: 4rem;
