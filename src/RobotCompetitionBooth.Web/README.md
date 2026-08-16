@@ -18,6 +18,8 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Waits for the Robobooth to connect to both Wi-Fi and MQTT before reporting the combined setup as connected.
 - Provides a `/devices` page showing each MQTT-connected device, its live RGB value, and the last update time.
 - Opens a Blockly editor from each live device and saves multiple named workspaces for that device on the server.
+- Synchronizes Blockly edits between everyone programming the same robot, including a live editor list and colored block selections.
+- Gives each browser a persistent random adjective-and-animal identity and color, with an option to choose a custom display name.
 - Keeps the selected robot connection in a process-wide singleton and asks Windows to maintain and automatically restore the GATT connection.
 
 The browser does not access Bluetooth directly. Discovery is cancelled when the Bluetooth page is disposed, but an established connection is owned by the server process and remains active when the operator navigates away or closes the browser. Explicit disconnect removes the device from Windows paired devices. An orderly server-process shutdown does the same automatically.
@@ -77,7 +79,9 @@ To connect to the ESP32-S3:
 7. Open **Live devices** to see its slowly changing colour update once per second.
 8. Select **Program device** to create or reopen its Blockly workspaces. Enter a file name and select **Save** to
    write `%LOCALAPPDATA%\RobotCompetitionBooth\device-programs\<device-id>\<workspace-name>.json` on the server
-   computer. **Load workspace** lists only the workspaces saved for that device.
+   computer. **Load workspace** lists only the workspaces saved for that device. Everyone currently programming
+   that robot shares live Blockly edits and can see the other editors' selected blocks. A private/incognito window
+   receives a separate generated identity, and **Change my name** replaces the generated display name for that browser.
 
 Program upload is not implemented yet; saved workspaces remain available after browser and server restarts.
 
@@ -129,6 +133,7 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.
 - `Services/DeviceProgramStore.cs` validates, lists, and atomically saves named workspace JSON files per device.
+- `Services/RobotCollaborationService.cs` owns the process-wide live workspace and editor presence for each device.
 - `Properties/PublishProfiles/WindowsSingleFile.pubxml` defines the self-contained single-executable deployment.
 - `Models/BluetoothDeviceInfo.cs` contains the discovery result models.
 - `Models/BluetoothConnectionState.cs` contains the shared connection status shown to every Blazor circuit.

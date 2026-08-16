@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject DeviceProgramStore ProgramStore
 @inject RobotDeviceStateService DeviceState
+@inject RobotCollaborationService Collaboration
 @inject IJSRuntime JavaScript
 
 <PageTitle>@(device is null ? "Device program" : $"Program {device.DeviceName}")</PageTitle>
@@ -32,6 +33,86 @@
                 <code>@device.DeviceId</code> · Saved workspaces are kept separately for this robot.
             </p>
         </header>
+
+        <section class="collaboration-panel" aria-labelledby="collaboration-heading">
+            <div class="collaboration-heading">
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h2 id="collaboration-heading" class="h5 mb-0">Live editors</h2>
+                        <span class="badge text-bg-success">Live</span>
+                    </div>
+                    <span class="text-secondary small">
+                        @collaborators.Count @(collaborators.Count == 1 ? "person" : "people") working on this robot
+                    </span>
+                </div>
+
+                @if (currentCollaborator is not null)
+                {
+                    @if (editingDisplayName)
+                    {
+                        <div class="rename-editor">
+                            <label class="visually-hidden" for="collaborator-name">Your display name</label>
+                            <input id="collaborator-name"
+                                   class="form-control form-control-sm"
+                                   maxlength="40"
+                                   disabled="@renameInProgress"
+                                   @bind="requestedDisplayName"
+                                   @bind:event="oninput" />
+                            <button class="btn btn-sm btn-primary"
+                                    type="button"
+                                    disabled="@renameInProgress"
+                                    @onclick="RenameCollaboratorAsync">
+                                Save name
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    type="button"
+                                    disabled="@renameInProgress"
+                                    @onclick="CancelRename">
+                                Cancel
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                @onclick="BeginRename">
+                            Change my name
+                        </button>
+                    }
+                }
+            </div>
+
+            <div class="collaborator-list" aria-live="polite">
+                @foreach (var collaborator in collaborators)
+                {
+                    var isCurrentUser = collaborator.Id == currentCollaborator?.Id;
+                    <div class="collaborator-card @(isCurrentUser ? "current-collaborator" : null)"
+                         style="--collaborator-color: @collaborator.Color">
+                        <span class="collaborator-dot" aria-hidden="true"></span>
+                        <span class="collaborator-summary">
+                            <span class="collaborator-name">
+                                @collaborator.Name
+                                @if (isCurrentUser)
+                                {
+                                    <span class="text-secondary collaborator-you">(you)</span>
+                                }
+                            </span>
+                            <span class="collaborator-selection">
+                                @if (collaborator.SelectedBlockDescription is not null)
+                                {
+                                    <span>Selected: @collaborator.SelectedBlockDescription</span>
+                                }
+                                else
+                                {
+                                    <span>In the workspace</span>
+                                }
+                            </span>
+                        </span>
+                    </div>
+                }
+            </div>
+        </section>
 
         <section class="workspace-toolbar" aria-label="Workspace files">
             <div class="workspace-name-field">
@@ -152,15 +233,25 @@
 
     private RobotDeviceState? device;
     private IJSObjectReference? workspaceModule;
+    private DotNetObjectReference<DeviceProgram>? collaborationReference;
     private IReadOnlyList<SavedDeviceWorkspaceInfo> savedWorkspaces = [];
+    private IReadOnlyList<RobotCollaborator> collaborators = [];
+    private readonly Guid collaborationConnectionId = Guid.NewGuid();
+    private CollaboratorIdentity? currentCollaborator;
     private string? initializedDeviceId;
     private string workspaceName = "Program 1";
+    private string requestedDisplayName = string.Empty;
     private string? statusMessage;
+    private long collaborationRevision;
     private bool statusIsError;
     private bool workspaceReady;
     private bool operationInProgress;
     private bool saveInProgress;
     private bool showSavedWorkspaces;
+    private bool collaborationJoined;
+    private bool collaborationEventsSubscribed;
+    private bool editingDisplayName;
+    private bool renameInProgress;
 
     protected override void OnParametersSet()
     {
@@ -172,6 +263,13 @@
         if (device is null || initializedDeviceId == DeviceId)
         {
             return;
+        }
+
+        if (initializedDeviceId is not null)
+        {
+            LeaveCollaborationSession();
+            collaborationReference?.Dispose();
+            collaborationReference = null;
         }
 
         workspaceReady = false;
@@ -203,11 +301,6 @@
                 statusIsError = true;
             }
 
-            await workspaceModule.InvokeVoidAsync(
-                "create",
-                WorkspaceElementId,
-                savedWorkspace?.WorkspaceJson);
-
             if (savedWorkspace is not null)
             {
                 workspaceName = savedWorkspace.Name;
@@ -219,10 +312,58 @@
                 workspaceName = GetNextWorkspaceName();
             }
 
+            await workspaceModule.InvokeVoidAsync(
+                "create",
+                WorkspaceElementId,
+                savedWorkspace?.WorkspaceJson);
+            var initialWorkspaceJson = await workspaceModule.InvokeAsync<string>(
+                "save",
+                WorkspaceElementId);
+            var storedIdentity = await workspaceModule.InvokeAsync<StoredCollaboratorIdentity?>(
+                "getStoredCollaboratorIdentity");
+
+            SubscribeToCollaborationEvents();
+            var joinResult = Collaboration.Join(
+                collaborationConnectionId,
+                DeviceId,
+                storedIdentity,
+                initialWorkspaceJson,
+                workspaceName);
+            collaborationJoined = true;
+            currentCollaborator = joinResult.CurrentUser;
+            collaborators = joinResult.Collaborators;
+            collaborationRevision = joinResult.Revision;
+            workspaceName = joinResult.WorkspaceName;
+            requestedDisplayName = joinResult.CurrentUser.Name;
+
+            await workspaceModule.InvokeVoidAsync(
+                "storeCollaboratorIdentity",
+                joinResult.CurrentUser);
+            if (joinResult.JoinedExistingSession)
+            {
+                await workspaceModule.InvokeVoidAsync(
+                    "applyRemoteState",
+                    WorkspaceElementId,
+                    joinResult.WorkspaceJson);
+                statusMessage = $"Joined the live {joinResult.WorkspaceName}.json workspace.";
+                statusIsError = false;
+            }
+
+            collaborationReference = DotNetObjectReference.Create(this);
+            await workspaceModule.InvokeVoidAsync(
+                "startCollaboration",
+                WorkspaceElementId,
+                collaborationReference);
+            await UpdateRemoteSelectionsAsync();
+
             workspaceReady = true;
         }
         catch (Exception exception)
         {
+            LeaveCollaborationSession();
+            UnsubscribeFromCollaborationEvents();
+            collaborationReference?.Dispose();
+            collaborationReference = null;
             statusMessage = $"The Blockly workspace could not be opened: {exception.Message}";
             statusIsError = true;
         }
@@ -251,6 +392,10 @@
                 workspaceName,
                 workspaceJson);
             workspaceName = savedWorkspace.Name;
+            collaborationRevision = Collaboration.UpdateWorkspace(
+                collaborationConnectionId,
+                workspaceJson,
+                savedWorkspace.Name);
             await RefreshSavedWorkspacesAsync();
             statusMessage = $"Saved {savedWorkspace.Name}.json at {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
             statusIsError = false;
@@ -293,6 +438,10 @@
                 WorkspaceElementId,
                 savedWorkspace.WorkspaceJson);
             workspaceName = savedWorkspace.Name;
+            collaborationRevision = Collaboration.UpdateWorkspace(
+                collaborationConnectionId,
+                savedWorkspace.WorkspaceJson,
+                savedWorkspace.Name);
             showSavedWorkspaces = false;
             statusMessage = $"Loaded {savedWorkspace.Name}.json, saved {FormatSavedAt(savedWorkspace.LastSavedAt)}.";
             statusIsError = false;
@@ -322,6 +471,13 @@
         {
             await workspaceModule.InvokeVoidAsync("reset", WorkspaceElementId);
             workspaceName = GetNextWorkspaceName();
+            var workspaceJson = await workspaceModule.InvokeAsync<string>(
+                "save",
+                WorkspaceElementId);
+            collaborationRevision = Collaboration.UpdateWorkspace(
+                collaborationConnectionId,
+                workspaceJson,
+                workspaceName);
             showSavedWorkspaces = false;
             statusMessage = "Opened a new blank workspace. Give it a name before saving.";
             statusIsError = false;
@@ -387,10 +543,197 @@
     private static string FormatSavedAt(DateTimeOffset savedAt) =>
         savedAt.ToLocalTime().ToString("g");
 
+    [JSInvokable]
+    public Task OnLocalWorkspaceChanged(string workspaceJson)
+    {
+        if (collaborationJoined)
+        {
+            collaborationRevision = Collaboration.UpdateWorkspace(
+                collaborationConnectionId,
+                workspaceJson);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnLocalSelectionChanged(string? blockId, string? blockDescription)
+    {
+        if (collaborationJoined)
+        {
+            Collaboration.UpdateSelection(
+                collaborationConnectionId,
+                blockId,
+                blockDescription);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void SubscribeToCollaborationEvents()
+    {
+        if (collaborationEventsSubscribed)
+        {
+            return;
+        }
+
+        Collaboration.WorkspaceChanged += OnCollaborationWorkspaceChanged;
+        Collaboration.PresenceChanged += OnCollaborationPresenceChanged;
+        collaborationEventsSubscribed = true;
+    }
+
+    private void UnsubscribeFromCollaborationEvents()
+    {
+        if (!collaborationEventsSubscribed)
+        {
+            return;
+        }
+
+        Collaboration.WorkspaceChanged -= OnCollaborationWorkspaceChanged;
+        Collaboration.PresenceChanged -= OnCollaborationPresenceChanged;
+        collaborationEventsSubscribed = false;
+    }
+
+    private void LeaveCollaborationSession()
+    {
+        if (collaborationJoined)
+        {
+            Collaboration.Leave(collaborationConnectionId);
+            collaborationJoined = false;
+        }
+
+        currentCollaborator = null;
+        collaborators = [];
+    }
+
+    private void OnCollaborationWorkspaceChanged(
+        object? sender,
+        WorkspaceCollaborationUpdate update)
+    {
+        if (update.DeviceId != DeviceId ||
+            update.SourceConnectionId == collaborationConnectionId ||
+            update.Revision <= collaborationRevision)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            if (workspaceModule is null || !collaborationJoined ||
+                update.Revision <= collaborationRevision)
+            {
+                return;
+            }
+
+            collaborationRevision = update.Revision;
+            await workspaceModule.InvokeVoidAsync(
+                "applyRemoteState",
+                WorkspaceElementId,
+                update.WorkspaceJson);
+            if (update.WorkspaceNameChanged)
+            {
+                workspaceName = update.WorkspaceName;
+            }
+
+            await UpdateRemoteSelectionsAsync();
+            StateHasChanged();
+        });
+    }
+
+    private void OnCollaborationPresenceChanged(
+        object? sender,
+        PresenceCollaborationUpdate update)
+    {
+        if (update.DeviceId != DeviceId)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            collaborators = update.Collaborators;
+            await UpdateRemoteSelectionsAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task UpdateRemoteSelectionsAsync()
+    {
+        if (workspaceModule is null || !collaborationJoined)
+        {
+            return;
+        }
+
+        var selections = collaborators
+            .Where(collaborator =>
+                collaborator.Id != currentCollaborator?.Id &&
+                collaborator.SelectedBlockId is not null)
+            .Select(collaborator => new
+            {
+                BlockId = collaborator.SelectedBlockId,
+                collaborator.Color
+            })
+            .ToArray();
+        await workspaceModule.InvokeVoidAsync(
+            "setRemoteSelections",
+            WorkspaceElementId,
+            selections);
+    }
+
+    private void BeginRename()
+    {
+        requestedDisplayName = currentCollaborator?.Name ?? string.Empty;
+        editingDisplayName = true;
+    }
+
+    private void CancelRename()
+    {
+        requestedDisplayName = currentCollaborator?.Name ?? string.Empty;
+        editingDisplayName = false;
+    }
+
+    private async Task RenameCollaboratorAsync()
+    {
+        if (!collaborationJoined || renameInProgress)
+        {
+            return;
+        }
+
+        renameInProgress = true;
+        try
+        {
+            currentCollaborator = Collaboration.Rename(
+                collaborationConnectionId,
+                requestedDisplayName);
+            requestedDisplayName = currentCollaborator.Name;
+            editingDisplayName = false;
+            if (workspaceModule is not null)
+            {
+                await workspaceModule.InvokeVoidAsync(
+                    "storeCollaboratorIdentity",
+                    currentCollaborator);
+            }
+        }
+        catch (Exception exception)
+        {
+            statusMessage = $"Your display name could not be changed: {exception.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            renameInProgress = false;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        UnsubscribeFromCollaborationEvents();
+        LeaveCollaborationSession();
+
         if (workspaceModule is null)
         {
+            collaborationReference?.Dispose();
+            collaborationReference = null;
             return;
         }
 
@@ -402,6 +745,11 @@
         catch (JSDisconnectedException)
         {
             // The browser circuit has already ended.
+        }
+        finally
+        {
+            collaborationReference?.Dispose();
+            collaborationReference = null;
         }
     }
 }

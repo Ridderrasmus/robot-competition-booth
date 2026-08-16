@@ -22,7 +22,11 @@ var builder = runsFromExtractedSingleFile
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents()
+    .AddInteractiveServerComponents(options =>
+    {
+        // Remove disconnected editors promptly while allowing brief network interruptions to reconnect.
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromSeconds(5);
+    })
     .AddHubOptions(options =>
         options.MaximumReceiveMessageSize = DeviceProgramStore.MaximumWorkspaceFileLength + (64 * 1024));
 builder.Services.Configure<EmbeddedMqttOptions>(
@@ -34,6 +38,7 @@ builder.Services.AddSingleton<MqttBrokerAccessService>();
 builder.Services.AddSingleton<MqttBrokerEndpointProvider>();
 builder.Services.AddSingleton<RobotDeviceStateService>();
 builder.Services.AddSingleton<DeviceProgramStore>();
+builder.Services.AddSingleton<RobotCollaborationService>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
 builder.Services.AddHostedService<EmbeddedMqttBrokerService>();
 builder.Services.AddHostedService<BluetoothShutdownService>();

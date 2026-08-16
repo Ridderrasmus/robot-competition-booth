@@ -103,12 +103,7 @@ public sealed class DeviceProgramStore
         ArgumentNullException.ThrowIfNull(workspaceJson);
         var normalizedName = NormalizeWorkspaceName(workspaceName);
 
-        if (StrictUtf8.GetByteCount(workspaceJson) is <= 0 or > MaximumWorkspaceFileLength)
-        {
-            throw new InvalidDataException("The Blockly workspace is too large to save.");
-        }
-
-        ValidateWorkspaceJson(workspaceJson);
+        ValidateWorkspacePayload(workspaceJson);
 
         var workspaceFilePath = GetWorkspaceFilePath(deviceId, normalizedName);
         var deviceDirectoryPath = Path.GetDirectoryName(workspaceFilePath)
@@ -154,7 +149,7 @@ public sealed class DeviceProgramStore
         return Path.Combine(storageRootPath, deviceId);
     }
 
-    private static string NormalizeWorkspaceName(string? workspaceName)
+    internal static string NormalizeWorkspaceName(string? workspaceName)
     {
         var normalizedName = workspaceName?.Trim() ?? string.Empty;
         if (normalizedName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
@@ -189,7 +184,7 @@ public sealed class DeviceProgramStore
         return normalizedName;
     }
 
-    private static void ValidateDeviceId(string? deviceId)
+    internal static void ValidateDeviceId(string? deviceId)
     {
         if (deviceId is not { Length: >= 12 and <= 64 } ||
             !deviceId.StartsWith("robotbooth-", StringComparison.Ordinal) ||
@@ -197,6 +192,17 @@ public sealed class DeviceProgramStore
         {
             throw new ArgumentException("The Robobooth device ID is invalid.", nameof(deviceId));
         }
+    }
+
+    internal static void ValidateWorkspacePayload(string workspaceJson)
+    {
+        ArgumentNullException.ThrowIfNull(workspaceJson);
+        if (StrictUtf8.GetByteCount(workspaceJson) is <= 0 or > MaximumWorkspaceFileLength)
+        {
+            throw new InvalidDataException("The Blockly workspace is too large.");
+        }
+
+        ValidateWorkspaceJson(workspaceJson);
     }
 
     private static void ValidateWorkspaceJson(string workspaceJson)
