@@ -1,0 +1,48 @@
+@page "/admin"
+@inject AdminAccessService AdminAccess
+@inject NavigationManager Navigation
+
+<PageTitle>Admin</PageTitle>
+
+<AdminGate>
+    <div class="admin-page">
+        <header class="admin-header">
+            <div>
+                <span class="admin-eyebrow">Protected settings</span>
+                <h1 class="mb-1">Admin</h1>
+                <p class="text-secondary mb-0">Manage the server-side network and robot connection setup.</p>
+            </div>
+            <button class="btn btn-outline-secondary" type="button" @onclick="LockAdmin">
+                Lock admin
+            </button>
+        </header>
+
+        <div class="admin-settings-grid">
+            <a class="admin-setting-card" href="/admin/wifi">
+                <span class="admin-setting-icon wifi-icon" aria-hidden="true"></span>
+                <span>
+                    <strong>Wi-Fi setup</strong>
+                    <span>Choose and securely save the network provisioned to Robobooth devices.</span>
+                </span>
+                <span class="admin-setting-arrow" aria-hidden="true">→</span>
+            </a>
+
+            <a class="admin-setting-card" href="/admin/bluetooth">
+                <span class="admin-setting-icon bluetooth-icon" aria-hidden="true"></span>
+                <span>
+                    <strong>Bluetooth setup</strong>
+                    <span>Discover, pair, provision, disconnect, and forget Robobooth devices.</span>
+                </span>
+                <span class="admin-setting-arrow" aria-hidden="true">→</span>
+            </a>
+        </div>
+    </div>
+</AdminGate>
+
+@code {
+    private void LockAdmin()
+    {
+        AdminAccess.Lock();
+        Navigation.NavigateTo("/admin", replace: true);
+    }
+}

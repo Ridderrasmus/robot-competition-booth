@@ -1,10 +1,13 @@
-@page "/wifi"
+@page "/admin/wifi"
 @inject WifiCredentialStore WifiCredentials
 @inject WifiNetworkScanner WifiNetworks
+@inject AdminAccessService AdminAccess
 
 <PageTitle>Wi-Fi setup</PageTitle>
 
+<AdminGate OnUnlocked="HandleAdminUnlockedAsync">
 <div class="wifi-page">
+    <a class="d-inline-block mb-3" href="/admin">← Back to admin</a>
     <div class="mb-4">
         <h1>Wi-Fi setup</h1>
         <p class="text-secondary mb-0">
@@ -194,6 +197,7 @@
         </div>
     </section>
 </div>
+</AdminGate>
 
 @code {
     private WifiConfigurationStatus status = new(false, null);
@@ -204,13 +208,42 @@
     private string? operationMessage;
     private bool operationSucceeded;
     private bool isScanning;
+    private bool initialized;
 
     private WifiNetworkInfo? ConnectedNetwork => networks.FirstOrDefault(network => network.IsConnected);
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
+        if (AdminAccess.IsUnlocked)
+        {
+            InitializePage();
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && initialized)
+        {
+            _ = InvokeAsync(RefreshNetworksAsync);
+        }
+    }
+
+    private Task HandleAdminUnlockedAsync()
+    {
+        InitializePage();
+        _ = InvokeAsync(RefreshNetworksAsync);
+        return Task.CompletedTask;
+    }
+
+    private void InitializePage()
+    {
+        if (initialized)
+        {
+            return;
+        }
+
         RefreshStatus();
-        await RefreshNetworksAsync();
+        initialized = true;
     }
 
     private async Task RefreshNetworksAsync()

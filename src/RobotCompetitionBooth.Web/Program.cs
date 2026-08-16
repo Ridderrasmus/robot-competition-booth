@@ -39,6 +39,7 @@ builder.Services.AddSingleton<MqttBrokerEndpointProvider>();
 builder.Services.AddSingleton<RobotDeviceStateService>();
 builder.Services.AddSingleton<DeviceProgramStore>();
 builder.Services.AddSingleton<RobotCollaborationService>();
+builder.Services.AddScoped<AdminAccessService>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
 builder.Services.AddHostedService<EmbeddedMqttBrokerService>();
 builder.Services.AddHostedService<BluetoothShutdownService>();

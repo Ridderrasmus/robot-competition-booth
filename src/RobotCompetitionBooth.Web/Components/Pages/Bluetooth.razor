@@ -1,12 +1,15 @@
-@page "/bluetooth"
+@page "/admin/bluetooth"
 @implements IDisposable
 @inject BluetoothDiscoveryService BluetoothDiscovery
 @inject BluetoothConnectionManager BluetoothConnection
 @inject WifiCredentialStore WifiCredentials
+@inject AdminAccessService AdminAccess
 
 <PageTitle>Bluetooth devices</PageTitle>
 
+<AdminGate OnUnlocked="HandleAdminUnlockedAsync">
 <div class="bluetooth-page">
+    <a class="d-inline-block mb-3" href="/admin">← Back to admin</a>
     <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
         <div>
             <h1>Bluetooth devices</h1>
@@ -32,7 +35,7 @@
     {
         <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-3" role="alert">
             <span>Wi-Fi settings are required before a Robobooth can be connected.</span>
-            <a class="btn btn-sm btn-warning" href="wifi">Open Wi-Fi setup</a>
+            <a class="btn btn-sm btn-warning" href="/admin/wifi">Open Wi-Fi setup</a>
         </div>
     }
     else
@@ -166,6 +169,7 @@
         </div>
     }
 </div>
+</AdminGate>
 
 @code {
     private static readonly TimeSpan ScanDuration = TimeSpan.FromSeconds(8);
@@ -176,6 +180,7 @@
     private WifiConfigurationStatus wifiStatus = new(false, null);
     private bool isScanning;
     private bool disposed;
+    private bool initialized;
     private bool operationSucceeded;
     private string scanStatus = "Starting Bluetooth scan...";
     private string pairingCode = string.Empty;
@@ -192,17 +197,38 @@
 
     protected override void OnInitialized()
     {
-        wifiStatus = WifiCredentials.GetStatus();
-        connectionState = BluetoothConnection.State;
-        BluetoothConnection.StateChanged += OnConnectionStateChanged;
+        if (AdminAccess.IsUnlocked)
+        {
+            InitializePage();
+        }
     }
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && initialized)
         {
             _ = InvokeAsync(ScanAsync);
         }
+    }
+
+    private Task HandleAdminUnlockedAsync()
+    {
+        InitializePage();
+        _ = InvokeAsync(ScanAsync);
+        return Task.CompletedTask;
+    }
+
+    private void InitializePage()
+    {
+        if (initialized)
+        {
+            return;
+        }
+
+        wifiStatus = WifiCredentials.GetStatus();
+        connectionState = BluetoothConnection.State;
+        BluetoothConnection.StateChanged += OnConnectionStateChanged;
+        initialized = true;
     }
 
     private async Task ScanAsync()

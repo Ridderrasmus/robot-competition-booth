@@ -44,7 +44,7 @@ pio run
 pio run --target upload
 ```
 
-The firmware advertises as `RobotBooth-ESP32S3`. On the website's **Wi-Fi setup** page, scan with the Windows host's Wi-Fi adapter and select the network the device should use. The host's current Wi-Fi connection is marked and pinned first; secured networks request a password, while open networks can be saved without one. Then use the **Bluetooth** page to scan, pair, provision Wi-Fi and MQTT, and maintain the robot connection. The device slowly cycles its RGB LED and sends the current colour to the app's **Live devices** page over Wi-Fi. Bluetooth and Wi-Fi discovery use the adapters installed in the server computer, not the browser visitor's adapters.
+The firmware advertises as `RobotBooth-ESP32S3`. Unlock **Admin**, open **Wi-Fi setup**, scan with the Windows host's Wi-Fi adapter, and select the network the device should use. The host's current Wi-Fi connection is marked and pinned first; secured networks request a password, while open networks can be saved without one. Then use **Bluetooth setup** inside Admin to scan, pair, provision Wi-Fi and MQTT, and maintain the robot connection. The device slowly cycles its RGB LED and sends telemetry over Wi-Fi; **Live devices** now shows only the connected-robot list and programming buttons. Bluetooth and Wi-Fi discovery use the adapters installed in the server computer, not the browser visitor's adapters.
 
 Selecting **Disconnect and forget** removes every saved `RobotBooth-*` pairing from Windows. The app performs the same sweep after a failed post-pairing connection, when the executable shuts down normally, and at the next startup as recovery from a forced exit.
 

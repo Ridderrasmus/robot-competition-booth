@@ -1,13 +1,75 @@
 .devices-page {
-    max-width: 72rem;
+    max-width: 64rem;
 }
 
-.broker-card {
-    border-left: 0.25rem solid var(--bs-success);
+.devices-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.device-count {
+    flex: 0 0 auto;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    color: var(--bs-secondary-color);
+    background: var(--bs-tertiary-bg);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.device-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.device-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: var(--bs-body-bg);
+}
+
+.device-icon,
+.empty-device-icon {
+    background-color: #e7f1ff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='%230d6efd' viewBox='0 0 16 16'%3E%3Cpath d='M5 0a.5.5 0 0 1 .5.5V2h5V.5a.5.5 0 0 1 1 0V2h.5A2 2 0 0 1 14 4v8a2 2 0 0 1-2 2h-.5v1.5a.5.5 0 0 1-1 0V14h-5v1.5a.5.5 0 0 1-1 0V14H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h.5V.5A.5.5 0 0 1 5 0zM4 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H4zm2.5 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm5 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM5 10a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5A.5.5 0 0 1 5 10z'/%3E%3C/svg%3E");
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.device-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.65rem;
+}
+
+.device-identity {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+}
+
+.device-identity strong,
+.device-identity code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.device-identity code {
+    color: var(--bs-secondary-color);
+    font-size: 0.78rem;
 }
 
 .empty-state {
-    max-width: 42rem;
+    max-width: 40rem;
     padding: 3.5rem 2rem;
     border: 1px dashed var(--bs-border-color);
     border-radius: 0.75rem;
@@ -15,88 +77,26 @@
     background: var(--bs-tertiary-bg);
 }
 
-.empty-icon {
-    width: 3rem;
-    height: 3rem;
+.empty-device-icon {
+    display: block;
+    width: 3.5rem;
+    height: 3.5rem;
     margin: 0 auto 1rem;
-    border-radius: 50%;
-    color: var(--bs-secondary-color);
-    background: linear-gradient(135deg, #ef4444, #eab308 33%, #22c55e 66%, #3b82f6);
-    font-size: 0;
+    border-radius: 0.85rem;
 }
 
-.device-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-    gap: 1rem;
-}
+@media (max-width: 576px) {
+    .devices-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
 
-.device-card {
-    overflow: hidden;
-}
+    .device-row {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
 
-.device-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.device-id {
-    color: var(--bs-secondary-color);
-    font-size: 0.78rem;
-}
-
-.colour-display {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    margin: 1.5rem 0;
-    padding: 1rem;
-    border-radius: 0.75rem;
-    background: var(--bs-tertiary-bg);
-}
-
-.colour-swatch {
-    width: 5rem;
-    height: 5rem;
-    flex: 0 0 5rem;
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    border-radius: 1rem;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
-}
-
-.colour-value {
-    font-family: var(--bs-font-monospace);
-    font-size: clamp(1.5rem, 5vw, 2rem);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-}
-
-.device-details {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 0.35rem 1rem;
-}
-
-.device-details dt {
-    color: var(--bs-secondary-color);
-    font-weight: 500;
-}
-
-.device-details dd {
-    text-align: right;
-}
-
-.program-button {
-    width: 100%;
-    margin-top: 1.25rem;
-}
-
-@media (max-width: 480px) {
-    .colour-swatch {
-        width: 4rem;
-        height: 4rem;
-        flex-basis: 4rem;
+    .device-row .btn {
+        grid-column: 1 / -1;
+        width: 100%;
     }
 }

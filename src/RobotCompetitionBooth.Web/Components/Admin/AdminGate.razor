@@ -1,0 +1,93 @@
+@inject AdminAccessService AdminAccess
+
+@if (AdminAccess.IsUnlocked)
+{
+    @ChildContent
+}
+else
+{
+    <div class="admin-gate-page">
+        <section class="admin-gate-card" aria-labelledby="admin-unlock-heading">
+            <div class="admin-lock-icon" aria-hidden="true"></div>
+            <h1 id="admin-unlock-heading" class="h2">Admin access</h1>
+            <p class="text-secondary">
+                Enter the administrator password to manage Wi-Fi and Bluetooth setup on this server.
+            </p>
+
+            @if (!AdminAccess.IsConfigured)
+            {
+                <div class="alert alert-danger mb-0" role="alert">
+                    No admin password is configured. Set <code>Admin__Password</code> for the server process.
+                </div>
+            }
+            else
+            {
+                <form class="admin-unlock-form" @onsubmit="UnlockAsync" @onsubmit:preventDefault>
+                    <div>
+                        <label for="admin-password" class="form-label">Admin password</label>
+                        <input id="admin-password"
+                               class="form-control"
+                               type="password"
+                               autocomplete="current-password"
+                               autofocus
+                               disabled="@unlockInProgress"
+                               @bind="password"
+                               @bind:event="oninput" />
+                    </div>
+                    <button class="btn btn-primary"
+                            type="submit"
+                            disabled="@(unlockInProgress || string.IsNullOrEmpty(password))">
+                        @if (unlockInProgress)
+                        {
+                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        }
+                        Unlock admin
+                    </button>
+                </form>
+
+                @if (!string.IsNullOrWhiteSpace(errorMessage))
+                {
+                    <div class="alert alert-danger mb-0" role="alert">@errorMessage</div>
+                }
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public EventCallback OnUnlocked { get; set; }
+
+    private string password = string.Empty;
+    private string? errorMessage;
+    private bool unlockInProgress;
+
+    private async Task UnlockAsync()
+    {
+        if (unlockInProgress)
+        {
+            return;
+        }
+
+        unlockInProgress = true;
+        errorMessage = null;
+        try
+        {
+            if (!AdminAccess.TryUnlock(password))
+            {
+                errorMessage = "That admin password is not correct.";
+                return;
+            }
+
+            password = string.Empty;
+            await OnUnlocked.InvokeAsync();
+        }
+        finally
+        {
+            unlockInProgress = false;
+        }
+    }
+}

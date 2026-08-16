@@ -1,0 +1,10 @@
+@page "/wifi"
+@page "/bluetooth"
+@inject NavigationManager Navigation
+
+<PageTitle>Admin setup</PageTitle>
+
+@code {
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo("/admin", replace: true);
+}

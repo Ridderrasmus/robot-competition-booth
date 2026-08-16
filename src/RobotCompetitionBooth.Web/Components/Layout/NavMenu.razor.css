@@ -1,96 +1,92 @@
-.navbar-toggler {
-    appearance: none;
-    cursor: pointer;
-    width: 3.5rem;
-    height: 2.5rem;
+.nav-menu {
+    position: relative;
+    height: 100%;
     color: white;
-    position: absolute;
-    top: 0.5rem;
-    right: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.55%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.75rem rgba(255, 255, 255, 0.1);
-}
-
-.navbar-toggler:checked {
-    background-color: rgba(255, 255, 255, 0.5);
 }
 
 .top-row {
+    display: flex;
     min-height: 3.5rem;
-    background-color: rgba(0,0,0,0.4);
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    padding: 0.5rem 0.75rem;
+    background-color: rgba(0, 0, 0, 0.4);
 }
 
 .navbar-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    color: white;
     font-size: 1.1rem;
 }
 
-.bi {
-    display: inline-block;
-    position: relative;
-    width: 1.25rem;
-    height: 1.25rem;
-    margin-right: 0.75rem;
-    top: -1px;
-    background-size: cover;
+.brand-mark {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 0.55rem;
+    font-size: 0.95rem;
+    font-weight: 800;
 }
 
-.bi-house-door-fill-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' class='bi bi-house-door-fill' viewBox='0 0 16 16'%3E%3Cpath d='M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5Z'/%3E%3C/svg%3E");
+.brand-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.bi-plus-square-fill-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' class='bi bi-plus-square-fill' viewBox='0 0 16 16'%3E%3Cpath d='M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3a.5.5 0 0 1 1 0z'/%3E%3C/svg%3E");
-}
-
-.bi-list-nested-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' class='bi bi-list-nested' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M4.5 11.5A.5.5 0 0 1 5 11h10a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm-2-4A.5.5 0 0 1 3 7h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm-2-4A.5.5 0 0 1 1 3h10a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z'/%3E%3C/svg%3E");
-}
-
-.bi-bluetooth-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M8.543.23A.75.75 0 0 0 7.25.75v5.19L4.28 2.97a.75.75 0 0 0-1.06 1.06L6.69 7.5l-3.47 3.47a.75.75 0 1 0 1.06 1.06l2.97-2.97v5.19a.75.75 0 0 0 1.293.52l4-3.5a.75.75 0 0 0 0-1.04L9.81 7.5l2.73-2.73a.75.75 0 0 0 0-1.04l-4-3.5zM8.75 2.56l2.19 1.69-2.19 1.69V2.56zm0 6.5 2.19 1.69-2.19 1.69V9.06z'/%3E%3C/svg%3E");
-}
-
-.bi-wifi-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M14.879 4.242a10 10 0 0 0-13.758 0 .5.5 0 0 0 .69.724 9 9 0 0 1 12.378 0 .5.5 0 0 0 .69-.724zM12.17 7.06a6 6 0 0 0-8.34 0 .5.5 0 1 0 .68.732 5 5 0 0 1 6.98 0 .5.5 0 1 0 .68-.732zM9.56 9.855a2 2 0 0 0-3.12 0 .5.5 0 0 0 .78.626 1 1 0 0 1 1.56 0 .5.5 0 1 0 .78-.626zM8 13.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5z'/%3E%3C/svg%3E");
-}
-
-.bi-palette-nav-menu {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M12.433 10.232c-.56 0-.98.35-1.344.774-.375.438-.77.977-1.19 1.502-.838 1.047-1.747 1.992-3.08 1.992-2.646 0-5.319-2.49-5.319-6.5C1.5 4.141 4.591 1 8.5 1c3.906 0 7 3.004 7 6.5 0 1.064-.153 1.87-.654 2.44-.492.56-1.22.792-2.413.792zM8.5 0C4.038 0 .5 3.59.5 8c0 4.4 2.996 7.5 6.319 7.5 1.802 0 2.99-1.257 3.861-2.347.43-.537.807-1.054 1.169-1.477.373-.435.65-.644.584-.644 1.355 0 2.435-.272 3.164-1.102.72-.82.903-1.927.903-3.43C16.5 3.46 12.89 0 8.5 0z'/%3E%3Ccircle cx='5.5' cy='5.5' r='1'/%3E%3Ccircle cx='9' cy='4.5' r='1'/%3E%3Ccircle cx='12' cy='7' r='1'/%3E%3C/svg%3E");
-}
-
-.nav-item {
-    font-size: 0.9rem;
-    padding-bottom: 0.5rem;
-}
-
-    .nav-item:first-of-type {
-        padding-top: 1rem;
-    }
-
-    .nav-item:last-of-type {
-        padding-bottom: 1rem;
-    }
-
-    .nav-item ::deep .nav-link {
-        color: #d7d7d7;
-        background: none;
-        border: none;
-        border-radius: 4px;
-        height: 3rem;
-        display: flex;
-        align-items: center;
-        line-height: 3rem;
-        width: 100%;
-    }
-
-.nav-item ::deep a.active {
-    background-color: rgba(255,255,255,0.37);
+.sidebar-collapse-button {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.45rem;
     color: white;
+    background: rgba(255, 255, 255, 0.08);
 }
 
-.nav-item ::deep .nav-link:hover {
-    background-color: rgba(255,255,255,0.1);
+.sidebar-collapse-button:hover,
+.sidebar-collapse-button:focus-visible {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.collapse-chevron {
+    width: 0.65rem;
+    height: 0.65rem;
+    border-bottom: 2px solid currentColor;
+    border-left: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 160ms ease;
+}
+
+.collapsed .collapse-chevron {
+    transform: rotate(225deg);
+}
+
+.navbar-toggler {
+    position: absolute;
+    top: 0.5rem;
+    right: 1rem;
+    width: 3.5rem;
+    height: 2.5rem;
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: white;
+    background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.7%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.75rem rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+}
+
+.navbar-toggler:checked {
+    background-color: rgba(255, 255, 255, 0.28);
 }
 
 .nav-scrollable {
@@ -101,17 +97,145 @@
     display: block;
 }
 
+.nav-item {
+    position: relative;
+    padding: 0 0.75rem 0.5rem;
+    font-size: 0.9rem;
+}
+
+.nav-item:first-of-type {
+    padding-top: 1rem;
+}
+
+.nav-item:last-of-type {
+    padding-bottom: 1rem;
+}
+
+.nav-item ::deep .nav-link {
+    display: flex;
+    width: 100%;
+    height: 3rem;
+    align-items: center;
+    padding: 0 0.8rem;
+    border: none;
+    border-radius: 0.5rem;
+    color: #d7d7d7;
+    background: none;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.nav-item ::deep .nav-link:hover {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.nav-item ::deep a.active {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.32);
+}
+
+.bi {
+    position: relative;
+    top: -1px;
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: 0 0 1.25rem;
+    margin-right: 0.75rem;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+}
+
+.bi-house-door-fill-nav-menu {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5Z'/%3E%3C/svg%3E");
+}
+
+.bi-devices-nav-menu {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M5 0a.5.5 0 0 1 .5.5V2h5V.5a.5.5 0 0 1 1 0V2h.5A2 2 0 0 1 14 4v8a2 2 0 0 1-2 2h-.5v1.5a.5.5 0 0 1-1 0V14h-5v1.5a.5.5 0 0 1-1 0V14H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h.5V.5A.5.5 0 0 1 5 0zM4 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H4zm2.5 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm5 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM5 10a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5A.5.5 0 0 1 5 10z'/%3E%3C/svg%3E");
+}
+
+.bi-admin-nav-menu {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a3 3 0 0 0-3 3v2h6V4a3 3 0 0 0-3-3zm4 5V4a4 4 0 0 0-8 0v2a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z'/%3E%3C/svg%3E");
+}
+
+.nav-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-tooltip {
+    display: none;
+}
+
 @media (min-width: 641px) {
     .navbar-toggler {
         display: none;
     }
 
     .nav-scrollable {
-        /* Never collapse the sidebar for wide screens */
         display: block;
-
-        /* Allow sidebar to scroll for tall menus */
         height: calc(100vh - 3.5rem);
-        overflow-y: auto;
+        overflow: visible;
+    }
+
+    .collapsed .top-row {
+        justify-content: center;
+        padding-inline: 0.5rem;
+    }
+
+    .collapsed .navbar-brand,
+    .collapsed .brand-label,
+    .collapsed .nav-label {
+        display: none;
+    }
+
+    .collapsed .sidebar-collapse-button {
+        width: 2.5rem;
+    }
+
+    .collapsed .nav-item {
+        padding-inline: 0.7rem;
+    }
+
+    .collapsed .nav-item ::deep .nav-link {
+        justify-content: center;
+        padding-inline: 0;
+    }
+
+    .collapsed .bi {
+        margin-right: 0;
+    }
+
+    .collapsed .nav-item:hover .nav-tooltip,
+    .collapsed .nav-item:focus-within .nav-tooltip {
+        position: absolute;
+        z-index: 10;
+        top: 50%;
+        left: calc(100% + 0.35rem);
+        display: block;
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        color: white;
+        background: #172033;
+        box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.22);
+        font-size: 0.8rem;
+        font-weight: 600;
+        line-height: 1;
+        pointer-events: none;
+        transform: translateY(-50%);
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 640.98px) {
+    .sidebar-collapse-button {
+        display: none;
+    }
+
+    .top-row {
+        padding-right: 5rem;
     }
 }

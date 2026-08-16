@@ -1,36 +1,57 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Robobooth</a>
+<div class="nav-menu @(IsCollapsed ? "collapsed" : null)">
+    <div class="top-row navbar navbar-dark">
+        <a class="navbar-brand" href="" title="Robobooth home">
+            <span class="brand-mark" aria-hidden="true">R</span>
+            <span class="brand-label">Robobooth</span>
+        </a>
+        <button class="sidebar-collapse-button"
+                type="button"
+                title="@(IsCollapsed ? "Expand navigation" : "Collapse navigation")"
+                aria-label="@(IsCollapsed ? "Expand navigation" : "Collapse navigation")"
+                aria-expanded="@(!IsCollapsed)"
+                @onclick="OnToggleCollapsed">
+            <span class="collapse-chevron" aria-hidden="true"></span>
+        </button>
+    </div>
+
+    <input type="checkbox"
+           title="Toggle navigation menu"
+           aria-label="Toggle navigation menu"
+           class="navbar-toggler" />
+
+    <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+        <nav class="nav flex-column">
+            <div class="nav-item">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Home" aria-label="Home">
+                    <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span>
+                    <span class="nav-label">Home</span>
+                </NavLink>
+                <span class="nav-tooltip" role="tooltip">Home</span>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link" href="devices" title="Live devices" aria-label="Live devices">
+                    <span class="bi bi-devices-nav-menu" aria-hidden="true"></span>
+                    <span class="nav-label">Live devices</span>
+                </NavLink>
+                <span class="nav-tooltip" role="tooltip">Live devices</span>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link" href="admin" title="Admin" aria-label="Admin">
+                    <span class="bi bi-admin-nav-menu" aria-hidden="true"></span>
+                    <span class="nav-label">Admin</span>
+                </NavLink>
+                <span class="nav-tooltip" role="tooltip">Admin</span>
+            </div>
+        </nav>
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+@code {
+    [Parameter]
+    public bool IsCollapsed { get; set; }
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="wifi">
-                <span class="bi bi-wifi-nav-menu" aria-hidden="true"></span> Wi-Fi setup
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="bluetooth">
-                <span class="bi bi-bluetooth-nav-menu" aria-hidden="true"></span> Bluetooth
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="devices">
-                <span class="bi bi-palette-nav-menu" aria-hidden="true"></span> Live devices
-            </NavLink>
-        </div>
-    </nav>
-</div>
-
+    [Parameter]
+    public EventCallback OnToggleCollapsed { get; set; }
+}
