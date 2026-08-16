@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robobooth.local/contracts/v1/program-package.schema.json",
+  "title": "Robobooth instruction package v1",
+  "type": "object",
+  "required": [
+    "contractVersion", "programId", "programName", "workspaceSha256", "compiledAt",
+    "compiler", "target", "safety", "variables", "entrypoints"
+  ],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "programId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+    "programName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "workspaceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "compiledAt": { "type": "string", "format": "date-time" },
+    "compiler": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "robobooth-python" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["runtime", "minimumRuntimeVersion"],
+      "properties": {
+        "runtime": { "const": "robobooth" },
+        "minimumRuntimeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": ["stopAllOutputsOnEnd", "stopAllOutputsOnFault"],
+      "properties": {
+        "stopAllOutputsOnEnd": { "const": true },
+        "stopAllOutputsOnFault": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "variables": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "type": { "type": "string", "maxLength": 80 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "entrypoints": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "required": ["kind", "root"],
+        "properties": {
+          "kind": { "enum": ["onStart", "forever", "event", "function", "looseStack"] },
+          "root": { "$ref": "#/$defs/node" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": {
+      "type": "array", "maxItems": 128,
+      "items": { "type": "string", "maxLength": 512 }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "opcode"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "opcode": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,79}$" },
+        "fields": { "type": "object", "additionalProperties": true },
+        "inputs": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,79}$" },
+          "additionalProperties": { "$ref": "#/$defs/node" }
+        },
+        "state": { "type": "object", "additionalProperties": true },
+        "disabled": { "type": "boolean" },
+        "next": { "$ref": "#/$defs/node" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

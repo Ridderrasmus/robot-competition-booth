@@ -1,100 +1,7 @@
+import { createRobotToolbox, defineRobotBlocks } from "./robotBlockCatalog.js";
+
 const workspaces = new Map();
 const collaboratorIdentityStorageKey = "robobooth-collaborator-identity-v1";
-
-const toolbox = {
-    kind: "categoryToolbox",
-    contents: [
-        {
-            kind: "category",
-            name: "Robot",
-            colour: "#0d6efd",
-            contents: [
-                { kind: "block", type: "robot_start" },
-                { kind: "block", type: "robot_set_light" },
-                {
-                    kind: "block",
-                    type: "robot_wait",
-                    inputs: {
-                        DURATION: {
-                            shadow: {
-                                type: "math_number",
-                                fields: { NUM: 1000 }
-                            }
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            kind: "category",
-            name: "Logic",
-            categorystyle: "logic_category",
-            contents: [
-                { kind: "block", type: "controls_if" },
-                { kind: "block", type: "logic_compare" },
-                { kind: "block", type: "logic_operation" },
-                { kind: "block", type: "logic_negate" },
-                { kind: "block", type: "logic_boolean" }
-            ]
-        },
-        {
-            kind: "category",
-            name: "Loops",
-            categorystyle: "loop_category",
-            contents: [
-                {
-                    kind: "block",
-                    type: "controls_repeat_ext",
-                    inputs: {
-                        TIMES: {
-                            shadow: {
-                                type: "math_number",
-                                fields: { NUM: 10 }
-                            }
-                        }
-                    }
-                },
-                { kind: "block", type: "controls_whileUntil" },
-                { kind: "block", type: "controls_for" },
-                { kind: "block", type: "controls_flow_statements" }
-            ]
-        },
-        {
-            kind: "category",
-            name: "Math",
-            categorystyle: "math_category",
-            contents: [
-                { kind: "block", type: "math_number", fields: { NUM: 0 } },
-                { kind: "block", type: "math_arithmetic" },
-                { kind: "block", type: "math_single" },
-                { kind: "block", type: "math_round" },
-                { kind: "block", type: "math_random_int" }
-            ]
-        },
-        {
-            kind: "category",
-            name: "Text",
-            categorystyle: "text_category",
-            contents: [
-                { kind: "block", type: "text" },
-                { kind: "block", type: "text_join" },
-                { kind: "block", type: "text_length" }
-            ]
-        },
-        {
-            kind: "category",
-            name: "Variables",
-            categorystyle: "variable_category",
-            custom: "VARIABLE"
-        },
-        {
-            kind: "category",
-            name: "Functions",
-            categorystyle: "procedure_category",
-            custom: "PROCEDURE"
-        }
-    ]
-};
 
 function getBlockly() {
     if (!globalThis.Blockly) {
@@ -102,55 +9,6 @@ function getBlockly() {
     }
 
     return globalThis.Blockly;
-}
-
-function defineRobotBlocks(blockly) {
-    if (blockly.Blocks.robot_start) {
-        return;
-    }
-
-    blockly.common.defineBlocksWithJsonArray([
-        {
-            type: "robot_start",
-            message0: "when program starts",
-            nextStatement: null,
-            colour: "#0d6efd",
-            tooltip: "The first block in the robot program.",
-            helpUrl: ""
-        },
-        {
-            type: "robot_set_light",
-            message0: "set robot light to %1",
-            args0: [
-                {
-                    type: "field_colour",
-                    name: "COLOUR",
-                    colour: "#ff0000"
-                }
-            ],
-            previousStatement: null,
-            nextStatement: null,
-            colour: "#0d6efd",
-            tooltip: "Set the robot's RGB status light.",
-            helpUrl: ""
-        },
-        {
-            type: "robot_wait",
-            message0: "wait %1 milliseconds",
-            args0: [
-                {
-                    type: "input_value",
-                    name: "DURATION",
-                    check: "Number"
-                }
-            ],
-            previousStatement: null,
-            nextStatement: null,
-            colour: "#0d6efd",
-            tooltip: "Pause the robot program for a number of milliseconds.",
-            helpUrl: ""
-        }
-    ]);
 }
 
 function getEntry(elementId) {
@@ -163,7 +21,7 @@ function getEntry(elementId) {
 }
 
 function addStarterBlock(workspace) {
-    const startBlock = workspace.newBlock("robot_start");
+    const startBlock = workspace.newBlock("prg_on_start");
     startBlock.initSvg();
     startBlock.render();
     startBlock.moveBy(40, 40);
@@ -203,7 +61,7 @@ export function create(elementId, initialStateJson) {
     }
 
     const workspace = blockly.inject(host, {
-        toolbox,
+        toolbox: createRobotToolbox(),
         media: "/lib/blockly/media/",
         renderer: "zelos",
         grid: {

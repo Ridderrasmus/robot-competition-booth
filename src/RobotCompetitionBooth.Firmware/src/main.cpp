@@ -37,6 +37,8 @@ constexpr unsigned long InitialWifiConnectionTimeoutMs = 20000;
 constexpr unsigned long InitialMqttConnectionTimeoutMs = 15000;
 constexpr unsigned long MqttReconnectIntervalMs = 3000;
 constexpr unsigned long ColorPublishIntervalMs = 1000;
+constexpr unsigned long SensorPublishIntervalMs = 200;
+constexpr unsigned long SensorPublishErrorLogIntervalMs = 5000;
 constexpr unsigned long LedAnimationPeriodMs = 18000;
 constexpr unsigned long LedRefreshIntervalMs = 30;
 constexpr uint8_t LedBrightness = 28;
@@ -58,10 +60,11 @@ struct RgbColor {
 NimBLECharacteristic* provisioningStatusCharacteristic = nullptr;
 QueueHandle_t provisioningQueue = nullptr;
 WiFiClient wifiClient;
-MQTTClient mqttClient(256);
+MQTTClient mqttClient(2048);
 
 char deviceId[32]{};
 char colorTopic[128]{};
+char sensorTopic[128]{};
 char statusTopic[128]{};
 char mqttHost[MaximumMqttHostLength + 1]{};
 char mqttPassword[MqttPasswordLength + 1]{};
@@ -75,8 +78,11 @@ unsigned long wifiConnectionStartedAt = 0;
 unsigned long mqttConnectionStartedAt = 0;
 unsigned long lastMqttConnectAttemptAt = 0;
 unsigned long lastColorPublishedAt = 0;
+unsigned long lastSensorPublishedAt = 0;
+unsigned long lastSensorPublishErrorAt = 0;
 unsigned long lastLedRefreshAt = 0;
 uint32_t colorSequence = 0;
+uint32_t sensorSequence = 0;
 RgbColor currentColor{255, 0, 0};
 
 void setProvisioningStatus(const char* status) {
@@ -377,6 +383,127 @@ void publishColor(bool force = false) {
     }
 }
 
+uint32_t triangleValue(unsigned long now, uint32_t periodMs, uint32_t maximum) {
+    const uint32_t position = now % periodMs;
+    const uint32_t halfPeriod = periodMs / 2;
+    const uint32_t distanceFromEdge = position <= halfPeriod
+        ? position
+        : periodMs - position;
+    return (static_cast<uint64_t>(distanceFromEdge) * maximum) / halfPeriod;
+}
+
+void publishSyntheticSensorSnapshot(bool force = false) {
+    if (!mqttClient.connected()) {
+        return;
+    }
+
+    const unsigned long now = millis();
+    if (!force && now - lastSensorPublishedAt < SensorPublishIntervalMs) {
+        return;
+    }
+    lastSensorPublishedAt = now;
+
+    const uint32_t distanceMillimetres = 120 + triangleValue(now, 7000, 1080);
+    const uint32_t lightPercent = 10 + triangleValue(now + 900, 6000, 85);
+
+    const uint32_t red = static_cast<uint32_t>(currentColor.red) * 257;
+    const uint32_t green = static_cast<uint32_t>(currentColor.green) * 257;
+    const uint32_t blue = static_cast<uint32_t>(currentColor.blue) * 257;
+    const uint32_t clear = (red + green + blue) / 3;
+    constexpr const char* DetectedColors[] = {
+        "red", "yellow", "green", "cyan", "blue", "magenta", "white", "black"};
+    const char* detectedColor = DetectedColors[(now / 2500) % 8];
+
+    const int32_t linePosition = static_cast<int32_t>(triangleValue(now, 6000, 200)) - 100;
+    constexpr int32_t LineChannelPositions[] = {-100, -50, 0, 50, 100};
+    uint32_t lineNormalized[5]{};
+    uint32_t lineRaw[5]{};
+    char linePattern[6]{};
+    for (size_t index = 0; index < 5; ++index) {
+        const uint32_t distance = static_cast<uint32_t>(
+            std::abs(linePosition - LineChannelPositions[index]));
+        lineNormalized[index] = distance >= 50 ? 5 : 100 - (distance * 95) / 50;
+        lineRaw[index] = (lineNormalized[index] * 4095) / 100;
+        linePattern[index] = lineNormalized[index] >= 60 ? '1' : '0';
+    }
+    linePattern[5] = '\0';
+
+    const int64_t leftCount = static_cast<int64_t>(now / 20);
+    const int64_t rightCount = static_cast<int64_t>(now / 22);
+    const int64_t leftAngle = leftCount * 6;
+    const int64_t rightAngle = rightCount * 6;
+    const int32_t leftSpeed = static_cast<int32_t>(triangleValue(now, 8000, 200)) - 100;
+    const int32_t rightSpeed = static_cast<int32_t>(triangleValue(now + 1200, 8000, 200)) - 100;
+
+    uint32_t servoAngles[5]{};
+    for (size_t index = 0; index < 5; ++index) {
+        servoAngles[index] = triangleValue(now + static_cast<unsigned long>(index * 700), 5000, 180);
+    }
+
+    char payload[1536]{};
+    const int payloadLength = snprintf(
+        payload,
+        sizeof(payload),
+        "{\"version\":1,\"sequence\":%lu,\"uptimeMs\":%lu,\"mode\":\"idle\","
+        "\"distance\":{\"valid\":true,\"millimetres\":%lu},"
+        "\"colour\":{\"valid\":true,\"red\":%lu,\"green\":%lu,\"blue\":%lu,"
+        "\"clear\":%lu,\"detected\":\"%s\",\"lightPercent\":%lu},"
+        "\"line\":{\"valid\":true,\"raw\":[%lu,%lu,%lu,%lu,%lu],"
+        "\"normalized\":[%lu,%lu,%lu,%lu,%lu],\"pattern\":\"%s\",\"position\":%ld},"
+        "\"motors\":{\"left\":{\"count\":%lld,\"angleDegrees\":%lld,\"rotations\":%.3f,"
+        "\"speedPercent\":%ld},\"right\":{\"count\":%lld,\"angleDegrees\":%lld,"
+        "\"rotations\":%.3f,\"speedPercent\":%ld}},"
+        "\"servos\":{\"angles\":[%lu,%lu,%lu,%lu,%lu]}}",
+        static_cast<unsigned long>(sensorSequence++),
+        now,
+        static_cast<unsigned long>(distanceMillimetres),
+        static_cast<unsigned long>(red),
+        static_cast<unsigned long>(green),
+        static_cast<unsigned long>(blue),
+        static_cast<unsigned long>(clear),
+        detectedColor,
+        static_cast<unsigned long>(lightPercent),
+        static_cast<unsigned long>(lineRaw[0]),
+        static_cast<unsigned long>(lineRaw[1]),
+        static_cast<unsigned long>(lineRaw[2]),
+        static_cast<unsigned long>(lineRaw[3]),
+        static_cast<unsigned long>(lineRaw[4]),
+        static_cast<unsigned long>(lineNormalized[0]),
+        static_cast<unsigned long>(lineNormalized[1]),
+        static_cast<unsigned long>(lineNormalized[2]),
+        static_cast<unsigned long>(lineNormalized[3]),
+        static_cast<unsigned long>(lineNormalized[4]),
+        linePattern,
+        static_cast<long>(linePosition),
+        static_cast<long long>(leftCount),
+        static_cast<long long>(leftAngle),
+        static_cast<double>(leftCount) / 60.0,
+        static_cast<long>(leftSpeed),
+        static_cast<long long>(rightCount),
+        static_cast<long long>(rightAngle),
+        static_cast<double>(rightCount) / 60.0,
+        static_cast<long>(rightSpeed),
+        static_cast<unsigned long>(servoAngles[0]),
+        static_cast<unsigned long>(servoAngles[1]),
+        static_cast<unsigned long>(servoAngles[2]),
+        static_cast<unsigned long>(servoAngles[3]),
+        static_cast<unsigned long>(servoAngles[4]));
+
+    if (payloadLength <= 0 || static_cast<size_t>(payloadLength) >= sizeof(payload)) {
+        if (now - lastSensorPublishErrorAt >= SensorPublishErrorLogIntervalMs) {
+            lastSensorPublishErrorAt = now;
+            Serial.println("Synthetic sensor payload exceeded its buffer.");
+        }
+        return;
+    }
+
+    if (!mqttClient.publish(sensorTopic, payload, false, 0) &&
+        now - lastSensorPublishErrorAt >= SensorPublishErrorLogIntervalMs) {
+        lastSensorPublishErrorAt = now;
+        Serial.println("Could not publish synthetic sensor telemetry over MQTT.");
+    }
+}
+
 void configureMqttClient() {
     mqttClient.begin(mqttHost, mqttPort, wifiClient);
     mqttClient.setOptions(15, true, 1000);
@@ -404,6 +531,7 @@ void tryConnectMqtt() {
         setProvisioningStatus("mqtt-connected");
         mqttClient.publish(statusTopic, "online", true, 1);
         publishColor(true);
+        publishSyntheticSensorSnapshot(true);
         Serial.println("Connected to the embedded MQTT broker.");
         return;
     }
@@ -489,6 +617,7 @@ void updateNetworkConnections() {
     mqttClient.loop();
     tryConnectMqtt();
     publishColor();
+    publishSyntheticSensorSnapshot();
 }
 
 } // namespace
@@ -510,6 +639,7 @@ void setup() {
         "robotbooth-%012llx",
         static_cast<unsigned long long>(chipId));
     snprintf(colorTopic, sizeof(colorTopic), "robobooth/v1/devices/%s/state/color", deviceId);
+    snprintf(sensorTopic, sizeof(sensorTopic), "robobooth/v1/devices/%s/telemetry/sensors", deviceId);
     snprintf(statusTopic, sizeof(statusTopic), "robobooth/v1/devices/%s/status", deviceId);
 
     // Provisioning values are kept only in RAM. The server computer owns their

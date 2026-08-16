@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robobooth.local/contracts/v1/program-status.schema.json",
+  "title": "Robobooth program status v1",
+  "type": "object",
+  "required": ["version", "sequence", "uptimeMs", "state"],
+  "properties": {
+    "version": { "const": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "uptimeMs": { "type": "integer", "minimum": 0 },
+    "requestId": { "type": "string", "format": "uuid" },
+    "state": { "enum": ["idle", "receiving", "validating", "ready", "running", "stopped", "failed", "fault"] },
+    "programId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+    "errorCode": {
+      "enum": [
+        "unsupported-version", "invalid-envelope", "digest-mismatch", "invalid-program",
+        "unsupported-opcode", "resource-limit", "storage-failed", "program-not-found",
+        "runtime-fault", "safety-stop"
+      ]
+    },
+    "detail": { "type": "string", "maxLength": 512 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "enum": ["failed", "fault"] } }, "required": ["state"] },
+      "then": { "required": ["errorCode"] }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robobooth.local/contracts/v1/program-control.schema.json",
+  "title": "Robobooth program control request v1",
+  "type": "object",
+  "required": ["version", "requestId", "sentAt", "action"],
+  "properties": {
+    "version": { "const": 1 },
+    "requestId": { "type": "string", "format": "uuid" },
+    "sentAt": { "type": "string", "format": "date-time" },
+    "action": { "enum": ["run", "stop"] },
+    "programId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "action": { "const": "run" } }, "required": ["action"] },
+      "then": { "required": ["programId"] }
+    }
+  ],
+  "additionalProperties": false
+}

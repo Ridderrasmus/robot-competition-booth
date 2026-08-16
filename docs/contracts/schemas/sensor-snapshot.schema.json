@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robobooth.local/contracts/v1/sensor-snapshot.schema.json",
+  "title": "Robobooth sensor snapshot v1",
+  "type": "object",
+  "required": ["version", "sequence", "uptimeMs", "mode", "distance", "colour", "line", "motors", "servos"],
+  "properties": {
+    "version": { "const": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "uptimeMs": { "type": "integer", "minimum": 0 },
+    "mode": { "enum": ["idle", "running", "fault"] },
+    "distance": {
+      "type": "object",
+      "required": ["valid", "millimetres"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "millimetres": { "type": ["number", "null"], "minimum": 0, "maximum": 4000 }
+      },
+      "additionalProperties": false
+    },
+    "colour": {
+      "type": "object",
+      "required": ["valid", "red", "green", "blue", "clear", "detected", "lightPercent"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "red": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "green": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "blue": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "clear": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "detected": { "enum": ["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black", "unknown"] },
+        "lightPercent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "line": {
+      "type": "object",
+      "required": ["valid", "raw", "normalized", "pattern", "position"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "raw": {
+          "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "type": "integer", "minimum": 0, "maximum": 4095 }
+        },
+        "normalized": {
+          "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "type": "number", "minimum": 0, "maximum": 100 }
+        },
+        "pattern": { "type": "string", "pattern": "^[01?]{5}$" },
+        "position": { "type": ["number", "null"], "minimum": -100, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "motors": {
+      "type": "object",
+      "required": ["left", "right"],
+      "properties": {
+        "left": { "$ref": "#/$defs/motor" },
+        "right": { "$ref": "#/$defs/motor" }
+      },
+      "additionalProperties": false
+    },
+    "servos": {
+      "type": "object",
+      "required": ["angles"],
+      "properties": {
+        "angles": {
+          "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "type": ["number", "null"], "minimum": 0, "maximum": 180 }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "motor": {
+      "type": "object",
+      "required": ["count", "angleDegrees", "rotations", "speedPercent"],
+      "properties": {
+        "count": { "type": "integer" },
+        "angleDegrees": { "type": "number" },
+        "rotations": { "type": "number" },
+        "speedPercent": { "type": "number", "minimum": -100, "maximum": 100 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

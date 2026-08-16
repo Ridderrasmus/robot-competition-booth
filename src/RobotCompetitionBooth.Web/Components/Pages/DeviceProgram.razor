@@ -207,20 +207,126 @@
             </div>
         }
 
-        <section class="workspace-shell" aria-label="Blockly program editor">
-            @if (!workspaceReady)
-            {
-                <div class="workspace-loading" role="status">
-                    <span class="spinner-border" aria-hidden="true"></span>
-                    <span>Opening Blockly…</span>
+        <div class="programming-stage">
+            <section class="workspace-shell" aria-label="Blockly program editor">
+                @if (!workspaceReady)
+                {
+                    <div class="workspace-loading" role="status">
+                        <span class="spinner-border" aria-hidden="true"></span>
+                        <span>Opening Blockly…</span>
+                    </div>
+                }
+                <div id="@WorkspaceElementId" class="blockly-host"></div>
+            </section>
+
+            <aside class="sensor-panel" aria-labelledby="sensor-panel-heading">
+                <div class="sensor-panel-heading">
+                    <div>
+                        <span class="eyebrow">Robot values</span>
+                        <h2 id="sensor-panel-heading">Live sensors</h2>
+                    </div>
+                    @if (device.Sensors is { } latestSensors)
+                    {
+                        var telemetryIsFresh = IsTelemetryFresh(latestSensors);
+                        <span class="runtime-mode @(telemetryIsFresh ? $"runtime-mode-{latestSensors.Mode}" : "runtime-mode-stale")">
+                            @(telemetryIsFresh ? latestSensors.Mode : "stale")
+                        </span>
+                    }
                 </div>
-            }
-            <div id="@WorkspaceElementId" class="blockly-host"></div>
-        </section>
+
+                @if (device.Sensors is not { } sensors)
+                {
+                    <div class="sensor-empty" role="status">
+                        <span class="sensor-empty-icon" aria-hidden="true">⌁</span>
+                        <strong>Waiting for the robot</strong>
+                        <span>Values appear here when the device starts publishing the v1 sensor snapshot.</span>
+                    </div>
+                }
+                else
+                {
+                    <p class="sensor-freshness">
+                        Snapshot @sensors.Sequence · @FormatTelemetryAge(sensors.ReceivedAt)
+                    </p>
+
+                    <section class="sensor-card sensor-card-featured">
+                        <div class="sensor-card-title">
+                            <span>Distance</span>
+                            <span class="sensor-validity @(sensors.Distance.Valid ? "is-valid" : null)">
+                                @(sensors.Distance.Valid ? "ready" : "no reading")
+                            </span>
+                        </div>
+                        <div class="distance-reading">
+                            @if (sensors.Distance.Valid && sensors.Distance.Millimetres is { } millimetres)
+                            {
+                                <strong>@((millimetres / 10d).ToString("0.0"))</strong><span>cm</span>
+                            }
+                            else
+                            {
+                                <strong>--</strong><span>cm</span>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="sensor-card">
+                        <div class="sensor-card-title">
+                            <span>Colour & light</span>
+                            <span class="colour-swatch" style="background: @GetColourSwatch(sensors.Colour.Detected)" aria-hidden="true"></span>
+                        </div>
+                        <div class="colour-reading">
+                            <strong>@ToDisplayName(sensors.Colour.Detected)</strong>
+                            <span>@sensors.Colour.LightPercent.ToString("0")% light</span>
+                        </div>
+                        <div class="raw-values" aria-label="Raw colour sensor values">
+                            <span>R @sensors.Colour.Red</span>
+                            <span>G @sensors.Colour.Green</span>
+                            <span>B @sensors.Colour.Blue</span>
+                            <span>C @sensors.Colour.Clear</span>
+                        </div>
+                    </section>
+
+                    <section class="sensor-card">
+                        <div class="sensor-card-title">
+                            <span>Line tracker</span>
+                            <code>@sensors.Line.Pattern</code>
+                        </div>
+                        <div class="line-readings" aria-label="Five line sensor levels">
+                            @foreach (var channel in sensors.Line.Normalized.Select((value, index) => (value, index)))
+                            {
+                                <span class="line-channel" title="Channel @(channel.index + 1): @channel.value.ToString("0")%">
+                                    <span class="line-channel-fill" style="@GetLineLevelStyle(channel.value)"></span>
+                                    <small>@(channel.index + 1)</small>
+                                </span>
+                            }
+                        </div>
+                        <div class="sensor-card-footer">
+                            Position <strong>@(sensors.Line.Position?.ToString("0.0") ?? "--")</strong>
+                        </div>
+                    </section>
+
+                    <section class="sensor-card">
+                        <div class="sensor-card-title"><span>Motor encoders</span></div>
+                        <div class="motor-readings">
+                            <span><small>Left</small><strong>@sensors.Motors.Left.Count</strong><em>@sensors.Motors.Left.SpeedPercent.ToString("0")%</em></span>
+                            <span><small>Right</small><strong>@sensors.Motors.Right.Count</strong><em>@sensors.Motors.Right.SpeedPercent.ToString("0")%</em></span>
+                        </div>
+                    </section>
+
+                    <section class="sensor-card">
+                        <div class="sensor-card-title"><span>Servo angles</span></div>
+                        <div class="servo-readings">
+                            @foreach (var servo in sensors.Servos.Angles.Select((angle, index) => (angle, index)))
+                            {
+                                <span><small>S@(servo.index + 1)</small><strong>@(servo.angle?.ToString("0") ?? "--")°</strong></span>
+                            }
+                        </div>
+                    </section>
+                }
+            </aside>
+        </div>
 
         <p class="upload-note mb-0">
-            Uploading programs to the device will be added later. For now, each named workspace is saved on the
-            server under this robot's device ID.
+            Workspaces are saved under this robot's device ID. The versioned instruction-package and MQTT deployment
+            contract is ready for the compiler and device runtime; device-side execution is the next integration step.
         </p>
     }
 </div>
@@ -237,7 +343,9 @@
     private IReadOnlyList<SavedDeviceWorkspaceInfo> savedWorkspaces = [];
     private IReadOnlyList<RobotCollaborator> collaborators = [];
     private readonly Guid collaborationConnectionId = Guid.NewGuid();
+    private readonly CancellationTokenSource freshnessCancellation = new();
     private CollaboratorIdentity? currentCollaborator;
+    private Task? freshnessTask;
     private string? initializedDeviceId;
     private string workspaceName = "Program 1";
     private string requestedDisplayName = string.Empty;
@@ -256,6 +364,12 @@
     protected override void OnParametersSet()
     {
         device = DeviceState.GetDevice(DeviceId);
+    }
+
+    protected override void OnInitialized()
+    {
+        DeviceState.StateChanged += OnDeviceStateChanged;
+        freshnessTask = RefreshTelemetryFreshnessAsync(freshnessCancellation.Token);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -543,6 +657,67 @@
     private static string FormatSavedAt(DateTimeOffset savedAt) =>
         savedAt.ToLocalTime().ToString("g");
 
+    private string FormatTelemetryAge(DateTimeOffset receivedAt)
+    {
+        var age = DateTimeOffset.Now - receivedAt;
+        if (device?.IsOnline == true && age.TotalSeconds <= 2)
+        {
+            return "live";
+        }
+
+        var ageText = $"{Math.Max(1, (int)age.TotalSeconds)}s ago";
+        return device?.IsOnline == true ? $"stale · {ageText}" : $"offline · {ageText}";
+    }
+
+    private bool IsTelemetryFresh(RobotSensorSnapshot snapshot) =>
+        device?.IsOnline == true && DateTimeOffset.Now - snapshot.ReceivedAt <= TimeSpan.FromSeconds(2);
+
+    private async Task RefreshTelemetryFreshnessAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal component disposal.
+        }
+    }
+
+    private static string GetLineLevelStyle(double value) =>
+        FormattableString.Invariant($"--line-level:{Math.Clamp(value, 0, 100):0.#}%");
+
+    private static string GetColourSwatch(string colour) => colour switch
+    {
+        "red" => "#ef4444",
+        "green" => "#22c55e",
+        "blue" => "#3b82f6",
+        "yellow" => "#facc15",
+        "cyan" => "#22d3ee",
+        "magenta" => "#d946ef",
+        "white" => "#f8fafc",
+        "black" => "#111827",
+        _ => "#94a3b8"
+    };
+
+    private static string ToDisplayName(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "Unknown"
+            : char.ToUpperInvariant(value[0]) + value[1..];
+
+    private void OnDeviceStateChanged(object? sender, EventArgs eventArgs)
+    {
+        _ = InvokeAsync(() =>
+        {
+            device = DeviceState.GetDevice(DeviceId);
+            StateHasChanged();
+        });
+    }
+
     [JSInvokable]
     public Task OnLocalWorkspaceChanged(string workspaceJson)
     {
@@ -727,6 +902,13 @@
 
     public async ValueTask DisposeAsync()
     {
+        await freshnessCancellation.CancelAsync();
+        if (freshnessTask is not null)
+        {
+            await freshnessTask;
+        }
+        freshnessCancellation.Dispose();
+        DeviceState.StateChanged -= OnDeviceStateChanged;
         UnsubscribeFromCollaborationEvents();
         LeaveCollaborationSession();
 

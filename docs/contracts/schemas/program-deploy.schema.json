@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robobooth.local/contracts/v1/program-deploy.schema.json",
+  "title": "Robobooth program deployment request v1",
+  "type": "object",
+  "required": ["version", "requestId", "sentAt", "packageSha256", "package"],
+  "properties": {
+    "version": { "const": 1 },
+    "requestId": { "type": "string", "format": "uuid" },
+    "sentAt": { "type": "string", "format": "date-time" },
+    "packageSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "package": { "$ref": "program-package.schema.json" }
+  },
+  "additionalProperties": false
+}

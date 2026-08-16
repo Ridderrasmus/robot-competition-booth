@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MQTTnet.Protocol;
 using MQTTnet.Server;
+using RobotCompetitionBooth.Web.Models;
 
 namespace RobotCompetitionBooth.Web.Services;
 
@@ -16,8 +17,17 @@ public sealed class EmbeddedMqttBrokerService(
 {
     private const string TopicPrefix = "robobooth/v1/devices/";
     private const string ColorTopicSuffix = "/state/color";
+    private const string SensorSnapshotTopicSuffix = "/telemetry/sensors";
     private const string StatusTopicSuffix = "/status";
     private const int MaximumPayloadLength = 512;
+    private const int MaximumSensorSnapshotPayloadLength = 8 * 1024;
+
+    private static readonly HashSet<string> RuntimeModes = new(
+        ["idle", "running", "fault"],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> DetectedColours = new(
+        ["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black", "unknown"],
+        StringComparer.Ordinal);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -117,6 +127,10 @@ public sealed class EmbeddedMqttBrokerService(
         {
             ProcessColorMessage(args);
         }
+        else if (topic.Equals(expectedPrefix + SensorSnapshotTopicSuffix, StringComparison.Ordinal))
+        {
+            ProcessSensorSnapshotMessage(args);
+        }
         else if (topic.Equals(expectedPrefix + StatusTopicSuffix, StringComparison.Ordinal))
         {
             ProcessStatusMessage(args);
@@ -179,10 +193,37 @@ public sealed class EmbeddedMqttBrokerService(
         }
     }
 
-    private bool TryReadPayload(InterceptingPublishEventArgs args, out byte[] payload)
+    private void ProcessSensorSnapshotMessage(InterceptingPublishEventArgs args)
+    {
+        if (!TryReadPayload(args, out var payload, MaximumSensorSnapshotPayloadLength))
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<RobotSensorSnapshot>(payload, JsonOptions);
+            if (snapshot is null || !IsValidSensorSnapshot(snapshot))
+            {
+                RejectPublish(args, "sensor snapshot payload is invalid");
+                return;
+            }
+
+            deviceState.UpdateSensors(args.ClientId, snapshot);
+        }
+        catch (JsonException)
+        {
+            RejectPublish(args, "sensor snapshot payload is not valid JSON");
+        }
+    }
+
+    private bool TryReadPayload(
+        InterceptingPublishEventArgs args,
+        out byte[] payload,
+        int maximumLength = MaximumPayloadLength)
     {
         var sequence = args.ApplicationMessage.Payload;
-        if (sequence.Length is <= 0 or > MaximumPayloadLength)
+        if (sequence.Length <= 0 || sequence.Length > maximumLength)
         {
             payload = [];
             RejectPublish(args, "payload size is invalid");
@@ -213,6 +254,78 @@ public sealed class EmbeddedMqttBrokerService(
         value is { Length: 7 } &&
         value[0] == '#' &&
         value.AsSpan(1).ContainsAnyExcept(SearchValues.Create("0123456789abcdefABCDEF")) is false;
+
+    private static bool IsValidSensorSnapshot(RobotSensorSnapshot snapshot)
+    {
+        if (snapshot.Version != 1 ||
+            snapshot.Sequence < 0 ||
+            snapshot.UptimeMs < 0 ||
+            !RuntimeModes.Contains(snapshot.Mode) ||
+            snapshot.Distance is null ||
+            snapshot.Colour is null ||
+            snapshot.Line is null ||
+            snapshot.Motors?.Left is null ||
+            snapshot.Motors.Right is null ||
+            snapshot.Servos?.Angles is null)
+        {
+            return false;
+        }
+
+        if (snapshot.Distance.Valid &&
+            (snapshot.Distance.Millimetres is not { } millimetres ||
+             !double.IsFinite(millimetres) || millimetres is < 0 or > 4000))
+        {
+            return false;
+        }
+
+        if (snapshot.Distance.Millimetres is { } optionalMillimetres &&
+            (!double.IsFinite(optionalMillimetres) || optionalMillimetres is < 0 or > 4000))
+        {
+            return false;
+        }
+
+        if (!IsRawColourValue(snapshot.Colour.Red) ||
+            !IsRawColourValue(snapshot.Colour.Green) ||
+            !IsRawColourValue(snapshot.Colour.Blue) ||
+            !IsRawColourValue(snapshot.Colour.Clear) ||
+            !DetectedColours.Contains(snapshot.Colour.Detected) ||
+            !double.IsFinite(snapshot.Colour.LightPercent) ||
+            snapshot.Colour.LightPercent is < 0 or > 100)
+        {
+            return false;
+        }
+
+        if (snapshot.Line.Raw.Count != 5 ||
+            snapshot.Line.Raw.Any(value => value is < 0 or > 4095) ||
+            snapshot.Line.Normalized.Count != 5 ||
+            snapshot.Line.Normalized.Any(value => !double.IsFinite(value) || value is < 0 or > 100) ||
+            snapshot.Line.Pattern.Length != 5 ||
+            snapshot.Line.Pattern.Any(value => value is not ('0' or '1' or '?')) ||
+            snapshot.Line.Position is { } position &&
+                (!double.IsFinite(position) || position is < -100 or > 100))
+        {
+            return false;
+        }
+
+        if (!IsValidMotorReading(snapshot.Motors.Left) ||
+            !IsValidMotorReading(snapshot.Motors.Right) ||
+            snapshot.Servos.Angles.Count != 5 ||
+            snapshot.Servos.Angles.Any(angle =>
+                angle is { } value && (!double.IsFinite(value) || value is < 0 or > 180)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsRawColourValue(int value) => value is >= 0 and <= 65535;
+
+    private static bool IsValidMotorReading(MotorSensorReading reading) =>
+        double.IsFinite(reading.AngleDegrees) &&
+        double.IsFinite(reading.Rotations) &&
+        double.IsFinite(reading.SpeedPercent) &&
+        reading.SpeedPercent is >= -100 and <= 100;
 
     private sealed record ColorTelemetryMessage(
         [property: JsonPropertyName("name")] string Name,

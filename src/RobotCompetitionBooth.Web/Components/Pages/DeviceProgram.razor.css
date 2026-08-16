@@ -192,6 +192,305 @@
     background: #f8f9fa;
 }
 
+.programming-stage {
+    display: flex;
+    min-height: 34rem;
+    flex: 1 1 34rem;
+    gap: 1rem;
+}
+
+.sensor-panel {
+    width: 19rem;
+    flex: 0 0 19rem;
+    overflow-y: auto;
+    padding: 1rem;
+    border: 1px solid #dbe4ee;
+    border-radius: 0.75rem;
+    color: #172033;
+    background:
+        radial-gradient(circle at 100% 0, rgba(14, 165, 233, 0.12), transparent 11rem),
+        #f7fafc;
+}
+
+.sensor-panel-heading,
+.sensor-card-title,
+.sensor-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.sensor-panel-heading h2 {
+    margin: 0.1rem 0 0;
+    font-size: 1.2rem;
+    font-weight: 750;
+}
+
+.eyebrow {
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 750;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+}
+
+.runtime-mode {
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    color: #475569;
+    background: #e2e8f0;
+    font-size: 0.68rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.runtime-mode-idle {
+    color: #067647;
+    background: #d1fadf;
+}
+
+.runtime-mode-running {
+    color: #175cd3;
+    background: #dbeafe;
+}
+
+.runtime-mode-fault {
+    color: #b42318;
+    background: #fee4e2;
+}
+
+.runtime-mode-stale {
+    color: #92400e;
+    background: #fef3c7;
+}
+
+.sensor-freshness {
+    margin: 0.65rem 0 0.8rem;
+    color: #64748b;
+    font-size: 0.73rem;
+}
+
+.sensor-empty {
+    display: flex;
+    min-height: 20rem;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.35rem;
+    color: #64748b;
+    text-align: center;
+}
+
+.sensor-empty strong {
+    color: #334155;
+}
+
+.sensor-empty-icon {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-bottom: 0.35rem;
+    place-items: center;
+    border-radius: 50%;
+    color: #0284c7;
+    background: #e0f2fe;
+    font-size: 1.5rem;
+}
+
+.sensor-card {
+    margin-bottom: 0.65rem;
+    padding: 0.8rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.65rem;
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.sensor-card-featured {
+    color: white;
+    border-color: #087ea4;
+    background: linear-gradient(135deg, #075985, #0891b2);
+}
+
+.sensor-card-title {
+    font-size: 0.77rem;
+    font-weight: 700;
+}
+
+.sensor-card-title code {
+    color: #475569;
+    font-size: 0.72rem;
+}
+
+.sensor-validity {
+    opacity: 0.72;
+    font-size: 0.65rem;
+    font-weight: 650;
+    text-transform: uppercase;
+}
+
+.sensor-validity.is-valid {
+    opacity: 1;
+    color: #a7f3d0;
+}
+
+.distance-reading {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+}
+
+.distance-reading strong {
+    font-size: 2rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.04em;
+}
+
+.distance-reading span {
+    opacity: 0.78;
+    font-size: 0.78rem;
+}
+
+.colour-swatch {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.colour-reading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.45rem;
+}
+
+.colour-reading strong {
+    font-size: 1rem;
+}
+
+.colour-reading span,
+.sensor-card-footer {
+    color: #64748b;
+    font-size: 0.7rem;
+}
+
+.raw-values {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.25rem;
+    margin-top: 0.6rem;
+    color: #64748b;
+    font-size: 0.62rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.raw-values span {
+    overflow: hidden;
+    padding: 0.18rem 0.2rem;
+    border-radius: 0.25rem;
+    background: #f1f5f9;
+    text-align: center;
+    text-overflow: ellipsis;
+}
+
+.line-readings {
+    display: grid;
+    height: 3.2rem;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.35rem;
+    margin: 0.55rem 0 0.45rem;
+}
+
+.line-channel {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.3rem;
+    background: #e2e8f0;
+}
+
+.line-channel-fill {
+    position: absolute;
+    inset: auto 0 0;
+    height: var(--line-level);
+    background: linear-gradient(#22c55e, #15803d);
+    transition: height 120ms ease-out;
+}
+
+.line-channel small {
+    position: absolute;
+    z-index: 1;
+    inset: auto 0 0.1rem;
+    color: white;
+    font-size: 0.58rem;
+    font-weight: 750;
+    text-align: center;
+    text-shadow: 0 1px 2px #0f172a;
+}
+
+.motor-readings {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.55rem;
+    margin-top: 0.5rem;
+}
+
+.motor-readings > span {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding: 0.45rem;
+    border-radius: 0.4rem;
+    background: #f1f5f9;
+}
+
+.motor-readings small {
+    grid-column: 1 / -1;
+    color: #64748b;
+    font-size: 0.62rem;
+}
+
+.motor-readings strong,
+.motor-readings em {
+    font-size: 0.78rem;
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+}
+
+.motor-readings em {
+    color: #64748b;
+}
+
+.servo-readings {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.servo-readings span {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    padding: 0.3rem 0.1rem;
+    border-radius: 0.35rem;
+    background: #f1f5f9;
+}
+
+.servo-readings small {
+    color: #64748b;
+    font-size: 0.55rem;
+}
+
+.servo-readings strong {
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+}
+
 .blockly-host {
     position: absolute;
     inset: 0;
@@ -255,5 +554,17 @@
 
     .workspace-shell {
         min-height: 28rem;
+    }
+
+    .programming-stage {
+        min-height: auto;
+        flex: none;
+        flex-direction: column;
+    }
+
+    .sensor-panel {
+        width: 100%;
+        max-height: none;
+        flex-basis: auto;
     }
 }

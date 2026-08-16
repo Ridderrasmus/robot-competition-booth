@@ -20,6 +20,10 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Provides a `/devices` page listing the currently connected robots and a button to open each programming workspace.
 - Lets desktop users collapse the navigation sidebar to icon-only mode, with text tooltips for every navigation icon.
 - Opens a Blockly editor from each live device and saves multiple named workspaces for that device on the server.
+- Provides the complete MakeCode-inspired robot block catalog, with common hardware blocks first and raw GPIO/I2C
+  configuration isolated in an Advanced category.
+- Shows the latest validated distance, colour/light, five-channel line, motor encoder, and servo values beside the
+  programming workspace when firmware publishes the v1 sensor snapshot.
 - Synchronizes Blockly edits between everyone programming the same robot, including a live editor list and colored block selections.
 - Gives each browser a persistent random adjective-and-animal identity and color, with an option to choose a custom display name.
 - Keeps the selected robot connection in a process-wide singleton and asks Windows to maintain and automatically restore the GATT connection.
@@ -89,7 +93,9 @@ To connect to the ESP32-S3:
    that robot shares live Blockly edits and can see the other editors' selected blocks. A private/incognito window
    receives a separate generated identity, and **Change my name** replaces the generated display name for that browser.
 
-Program upload is not implemented yet; saved workspaces remain available after browser and server restarts.
+Program upload is not implemented yet; saved workspaces remain available after browser and server restarts. The
+versioned MQTT, sensor, instruction-package, deploy/control, and program-status contracts are documented under
+`docs/contracts`, and `tools/compile_workspace.py` provides the initial Blockly-to-instruction-package compiler.
 
 The connection is accepted only after the server finds the firmware's custom service, securely reads the status characteristic value `ready`, provisions Wi-Fi and MQTT, and reads back the `mqtt-connected` status.
 
@@ -136,6 +142,7 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Components/Pages/Wifi.razor` contains the Wi-Fi setup page.
 - `Services/EmbeddedMqttBrokerService.cs` hosts and authenticates the in-process MQTT broker.
 - `Services/RobotDeviceStateService.cs` owns the current colour and connection state for each MQTT device.
+- `Models/RobotSensorSnapshot.cs` mirrors the validated MQTT sensor-snapshot contract used by the programming UI.
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.
 - `Components/Admin/AdminGate.razor` renders the password gate used by every admin setup route.

@@ -53,8 +53,10 @@ Selecting **Disconnect and forget** removes every saved `RobotBooth-*` pairing f
 The initial connection and Wi-Fi/MQTT provisioning path uses authenticated Bluetooth Low Energy. Runtime colour
 telemetry uses the MQTT broker hosted inside the same Blazor executable. Blockly-based visual programming is
 available from each connected device, synchronizes live edits and collaborator presence per robot, and saves named
-per-device workspaces on the server. Compiling and uploading those programs to the device are planned but are not
-implemented yet.
+per-device workspaces on the server. The editor includes the complete robot block catalog and a live sensor inspector.
+The versioned [robot/web MQTT and instruction contract](docs/contracts/README.md) plus the initial Python workspace
+compiler are checked in; device-side instruction storage/execution and the final upload control path remain the next
+firmware integration step.
 
 ## License
 

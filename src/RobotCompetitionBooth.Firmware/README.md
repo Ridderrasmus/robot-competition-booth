@@ -20,6 +20,9 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
 - Keeps provisioned Wi-Fi and MQTT credentials in RAM rather than persisting them to the ESP32 flash, and discards them after a failed Wi-Fi connection.
 - Slowly cycles the built-in RGB LED through red, green, and blue over an 18-second loop.
 - Publishes its device name and current `#RRGGBB` colour to the app's embedded MQTT broker once per second.
+- Publishes a contract-valid synthetic sensor snapshot five times per second so the programming interface can be
+  tested before physical sensor drivers are connected. Distance, detected colour, light, all five line channels,
+  line position, both encoders/speeds, and all five servo angles continuously change over time.
 - Publishes retained online/offline state and automatically reconnects to Wi-Fi and MQTT.
 - Restarts advertising after a client disconnects.
 - Uses red as a fatal-startup indicator; during normal operation the built-in RGB LED runs the colour animation.
@@ -67,6 +70,10 @@ The RGB LED provides a basic check without a serial monitor:
 - Red held for five seconds: BLE startup failed and the board will restart.
 
 Wi-Fi and MQTT settings intentionally are not retained across board restarts. The Windows host stores them securely and sends them again whenever it establishes a Robobooth BLE connection.
+
+Synthetic snapshots are published on `robobooth/v1/devices/<device-id>/telemetry/sensors` with `mode: "idle"` and
+match `docs/contracts/schemas/sensor-snapshot.schema.json`. Replace `publishSyntheticSensorSnapshot` with hardware
+cache readings when the physical drivers are ready; the topic and payload contract should remain unchanged.
 
 Generic BLE devices may not appear in a phone's normal Bluetooth settings. Use a BLE scanner such as nRF Connect when diagnosing advertisements or custom GATT services.
 

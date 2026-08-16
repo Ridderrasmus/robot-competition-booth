@@ -6,4 +6,5 @@ public sealed record RobotDeviceState(
     string ColorHex,
     long Sequence,
     bool IsOnline,
-    DateTimeOffset? LastReceived);
+    DateTimeOffset? LastReceived,
+    RobotSensorSnapshot? Sensors);

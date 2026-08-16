@@ -45,6 +45,10 @@ project.fragment.lock.json
 artifacts/
 TestResults/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Rider/ReSharper (often present in .NET repos)
 _ReSharper*/
 *.DotSettings.user
