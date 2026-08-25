@@ -465,13 +465,24 @@ function createCursorBubbleBurst(entry, remoteCursor) {
     });
     entry.cursorLayer.append(burst);
 
-    const bubbles = [
-        { size: 5, x: -14, y: -17, delay: 0, duration: 430 },
-        { size: 4, x: 15, y: -13, delay: 25, duration: 455 },
-        { size: 5.5, x: 13, y: 9, delay: 45, duration: 450 },
-        { size: 3.5, x: -16, y: 7, delay: 65, duration: 420 },
-        { size: 4.5, x: 2, y: -23, delay: 50, duration: 445 }
-    ];
+    const bubbleCount = 6 + Math.floor(Math.random() * 3);
+    const fadeOrder = Array.from({ length: bubbleCount }, (_, index) => index)
+        .sort(() => Math.random() - 0.5);
+    const angleOffset = Math.random() * Math.PI * 2;
+    const bubbles = Array.from({ length: bubbleCount }, (_, index) => {
+        const angle = angleOffset +
+            ((Math.PI * 2 * index) / bubbleCount) +
+            ((Math.random() - 0.5) * 0.4);
+        const distance = 15 + (Math.random() * 9);
+        const fadeStagger = fadeOrder[index] * (1 + Math.random());
+        return {
+            size: 3.5 + (Math.random() * 2.25),
+            x: Math.cos(angle) * distance,
+            y: Math.sin(angle) * distance,
+            duration: 455 + fadeStagger,
+            peakOpacity: 0.62 + (Math.random() * 0.12)
+        };
+    });
     const animations = bubbles.map(specification => {
         const bubble = document.createElement("span");
         Object.assign(bubble.style, {
@@ -488,14 +499,17 @@ function createCursorBubbleBurst(entry, remoteCursor) {
         burst.append(bubble);
         return bubble.animate([
             { transform: "translate(0, 0) scale(0.45)", opacity: 0 },
-            { transform: "translate(0, 0) scale(0.8)", opacity: 0.72, offset: 0.14 },
+            {
+                transform: "translate(0, 0) scale(0.8)",
+                opacity: specification.peakOpacity,
+                offset: 0.14
+            },
             {
                 transform: `translate(${specification.x}px, ${specification.y}px) scale(1.08)`,
                 opacity: 0
             }
         ], {
             duration: specification.duration,
-            delay: specification.delay,
             easing: "cubic-bezier(0.18, 0.72, 0.3, 1)",
             fill: "forwards"
         }).finished;
