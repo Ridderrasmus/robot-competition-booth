@@ -84,27 +84,9 @@ function createRemoteCursorElement(entry, cursor) {
     markerPath.setAttribute("stroke-linejoin", "round");
     marker.append(markerPath);
 
-    const label = document.createElement("span");
-    Object.assign(label.style, {
-        position: "absolute",
-        top: "18px",
-        left: "17px",
-        display: "block",
-        maxWidth: "13rem",
-        overflow: "hidden",
-        padding: "0.22rem 0.45rem",
-        border: "1px solid rgba(255, 255, 255, 0.85)",
-        borderRadius: "0.35rem",
-        color: "white",
-        font: "600 0.75rem/1.2 system-ui, sans-serif",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.3)"
-    });
-
-    element.append(marker, label);
+    element.append(marker);
     entry.cursorLayer.append(element);
-    const remoteCursor = { element, markerPath, label, cursor };
+    const remoteCursor = { element, markerPath, cursor };
     updateRemoteCursorAppearance(remoteCursor, cursor);
     return remoteCursor;
 }
@@ -112,8 +94,6 @@ function createRemoteCursorElement(entry, cursor) {
 function updateRemoteCursorAppearance(remoteCursor, cursor) {
     remoteCursor.cursor = cursor;
     remoteCursor.markerPath.setAttribute("fill", cursor.color);
-    remoteCursor.label.style.background = cursor.color;
-    remoteCursor.label.textContent = cursor.name;
 }
 
 function positionRemoteCursor(entry, remoteCursor) {
@@ -132,10 +112,6 @@ function positionRemoteCursor(entry, remoteCursor) {
 
     remoteCursor.element.style.opacity = isVisible ? "1" : "0";
     remoteCursor.element.style.transform = `translate3d(${left}px, ${top}px, 0)`;
-    remoteCursor.label.style.left = left > hostBounds.width - 180 ? "auto" : "17px";
-    remoteCursor.label.style.right = left > hostBounds.width - 180 ? "7px" : "auto";
-    remoteCursor.label.style.top = top > hostBounds.height - 55 ? "auto" : "18px";
-    remoteCursor.label.style.bottom = top > hostBounds.height - 55 ? "5px" : "auto";
 }
 
 function positionRemoteCursors(entry) {
@@ -475,6 +451,58 @@ export function setRemoteCursors(elementId, cursors) {
     }
 }
 
+function createCursorBubbleBurst(entry, remoteCursor) {
+    const burst = document.createElement("div");
+    Object.assign(burst.style, {
+        position: "absolute",
+        zIndex: "1",
+        top: "0",
+        left: "0",
+        width: "0",
+        height: "0",
+        pointerEvents: "none",
+        transform: remoteCursor.element.style.transform
+    });
+    entry.cursorLayer.append(burst);
+
+    const bubbles = [
+        { size: 5, x: -14, y: -17, delay: 0, duration: 430 },
+        { size: 4, x: 15, y: -13, delay: 25, duration: 455 },
+        { size: 5.5, x: 13, y: 9, delay: 45, duration: 450 },
+        { size: 3.5, x: -16, y: 7, delay: 65, duration: 420 },
+        { size: 4.5, x: 2, y: -23, delay: 50, duration: 445 }
+    ];
+    const animations = bubbles.map(specification => {
+        const bubble = document.createElement("span");
+        Object.assign(bubble.style, {
+            position: "absolute",
+            top: `${-specification.size / 2}px`,
+            left: `${-specification.size / 2}px`,
+            width: `${specification.size}px`,
+            height: `${specification.size}px`,
+            border: "1px solid rgba(255, 255, 255, 0.85)",
+            borderRadius: "50%",
+            background: remoteCursor.cursor.color,
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.2)"
+        });
+        burst.append(bubble);
+        return bubble.animate([
+            { transform: "translate(0, 0) scale(0.45)", opacity: 0 },
+            { transform: "translate(0, 0) scale(0.8)", opacity: 0.72, offset: 0.14 },
+            {
+                transform: `translate(${specification.x}px, ${specification.y}px) scale(1.08)`,
+                opacity: 0
+            }
+        ], {
+            duration: specification.duration,
+            delay: specification.delay,
+            easing: "cubic-bezier(0.18, 0.72, 0.3, 1)",
+            fill: "forwards"
+        }).finished;
+    });
+    Promise.allSettled(animations).then(() => burst.remove());
+}
+
 function removeRemoteCursor(entry, collaboratorId, animateRemoval) {
     const remoteCursor = entry.remoteCursors.get(collaboratorId);
     if (!remoteCursor) {
@@ -491,6 +519,7 @@ function removeRemoteCursor(entry, collaboratorId, animateRemoval) {
         return;
     }
 
+    createCursorBubbleBurst(entry, remoteCursor);
     const restingTransform = remoteCursor.element.style.transform;
     const animation = remoteCursor.element.animate([
         { transform: `${restingTransform} scale(1)`, opacity: 1 },
