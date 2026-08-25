@@ -17,9 +17,17 @@ public sealed record RobotCollaborator(
     string? SelectedBlockId,
     string? SelectedBlockDescription);
 
+public sealed record RobotCollaboratorCursor(
+    string CollaboratorId,
+    string Name,
+    string Color,
+    double WorkspaceX,
+    double WorkspaceY);
+
 public sealed record CollaborationJoinResult(
     CollaboratorIdentity CurrentUser,
     IReadOnlyList<RobotCollaborator> Collaborators,
+    IReadOnlyList<RobotCollaboratorCursor> Cursors,
     string WorkspaceJson,
     string WorkspaceName,
     long Revision,
@@ -36,3 +44,8 @@ public sealed record WorkspaceCollaborationUpdate(
 public sealed record PresenceCollaborationUpdate(
     string DeviceId,
     IReadOnlyList<RobotCollaborator> Collaborators);
+
+public sealed record CursorCollaborationUpdate(
+    string DeviceId,
+    string CollaboratorId,
+    RobotCollaboratorCursor? Cursor);

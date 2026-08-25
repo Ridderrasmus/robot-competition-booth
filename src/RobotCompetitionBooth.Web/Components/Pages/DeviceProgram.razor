@@ -468,6 +468,11 @@
                 "startCollaboration",
                 WorkspaceElementId,
                 collaborationReference);
+            await workspaceModule.InvokeVoidAsync(
+                "setRemoteCursors",
+                WorkspaceElementId,
+                joinResult.Cursors.Where(cursor =>
+                    cursor.CollaboratorId != joinResult.CurrentUser.Id));
             await UpdateRemoteSelectionsAsync();
 
             workspaceReady = true;
@@ -745,6 +750,20 @@
         return Task.CompletedTask;
     }
 
+    [JSInvokable]
+    public Task OnLocalCursorChanged(double? workspaceX, double? workspaceY)
+    {
+        if (collaborationJoined)
+        {
+            Collaboration.UpdateCursor(
+                collaborationConnectionId,
+                workspaceX,
+                workspaceY);
+        }
+
+        return Task.CompletedTask;
+    }
+
     private void SubscribeToCollaborationEvents()
     {
         if (collaborationEventsSubscribed)
@@ -754,6 +773,7 @@
 
         Collaboration.WorkspaceChanged += OnCollaborationWorkspaceChanged;
         Collaboration.PresenceChanged += OnCollaborationPresenceChanged;
+        Collaboration.CursorChanged += OnCollaborationCursorChanged;
         collaborationEventsSubscribed = true;
     }
 
@@ -766,6 +786,7 @@
 
         Collaboration.WorkspaceChanged -= OnCollaborationWorkspaceChanged;
         Collaboration.PresenceChanged -= OnCollaborationPresenceChanged;
+        Collaboration.CursorChanged -= OnCollaborationCursorChanged;
         collaborationEventsSubscribed = false;
     }
 
@@ -829,6 +850,31 @@
             collaborators = update.Collaborators;
             await UpdateRemoteSelectionsAsync();
             StateHasChanged();
+        });
+    }
+
+    private void OnCollaborationCursorChanged(
+        object? sender,
+        CursorCollaborationUpdate update)
+    {
+        if (update.DeviceId != DeviceId ||
+            update.CollaboratorId == currentCollaborator?.Id)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            if (workspaceModule is null || !collaborationJoined)
+            {
+                return;
+            }
+
+            await workspaceModule.InvokeVoidAsync(
+                "setRemoteCursor",
+                WorkspaceElementId,
+                update.CollaboratorId,
+                update.Cursor);
         });
     }
 

@@ -6,6 +6,7 @@ namespace RobotCompetitionBooth.Web.Services;
 public sealed class RobotCollaborationService
 {
     private const int MaximumDisplayNameLength = 40;
+    private const double MaximumCursorCoordinateMagnitude = 1_000_000;
 
     private static readonly string[] Adjectives =
     [
@@ -35,6 +36,8 @@ public sealed class RobotCollaborationService
     public event EventHandler<WorkspaceCollaborationUpdate>? WorkspaceChanged;
 
     public event EventHandler<PresenceCollaborationUpdate>? PresenceChanged;
+
+    public event EventHandler<CursorCollaborationUpdate>? CursorChanged;
 
     public CollaborationJoinResult Join(
         Guid connectionId,
@@ -73,6 +76,7 @@ public sealed class RobotCollaborationService
             result = new(
                 identity,
                 collaborators,
+                CreateCursorSnapshot(session),
                 session.WorkspaceJson,
                 session.WorkspaceName,
                 session.Revision,
@@ -149,11 +153,54 @@ public sealed class RobotCollaborationService
         PresenceChanged?.Invoke(this, update);
     }
 
+    public void UpdateCursor(
+        Guid connectionId,
+        double? workspaceX,
+        double? workspaceY)
+    {
+        if (workspaceX.HasValue != workspaceY.HasValue)
+        {
+            throw new ArgumentException("Both cursor coordinates must be supplied together.");
+        }
+
+        if (workspaceX is { } x &&
+            (!double.IsFinite(x) || Math.Abs(x) > MaximumCursorCoordinateMagnitude))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(workspaceX),
+                "The cursor X coordinate is outside the supported workspace range.");
+        }
+
+        if (workspaceY is { } y &&
+            (!double.IsFinite(y) || Math.Abs(y) > MaximumCursorCoordinateMagnitude))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(workspaceY),
+                "The cursor Y coordinate is outside the supported workspace range.");
+        }
+
+        CursorCollaborationUpdate update;
+        lock (stateLock)
+        {
+            var (deviceId, session, participant) = GetConnection(connectionId);
+            participant.CursorWorkspaceX = workspaceX;
+            participant.CursorWorkspaceY = workspaceY;
+            participant.CursorUpdatedAt = DateTimeOffset.UtcNow;
+            update = new(
+                deviceId,
+                participant.Identity.Id,
+                CreateCursorSnapshot(session, participant.Identity.Id));
+        }
+
+        CursorChanged?.Invoke(this, update);
+    }
+
     public CollaboratorIdentity Rename(Guid connectionId, string requestedName)
     {
         var normalizedName = NormalizeDisplayName(requestedName);
         CollaboratorIdentity identity;
         PresenceCollaborationUpdate update;
+        CursorCollaborationUpdate? cursorUpdate;
         lock (stateLock)
         {
             var (deviceId, session, participant) = GetConnection(connectionId);
@@ -166,15 +213,25 @@ public sealed class RobotCollaborationService
             }
 
             update = new(deviceId, CreateCollaboratorSnapshot(session));
+            var cursor = CreateCursorSnapshot(session, identityId);
+            cursorUpdate = cursor is null
+                ? null
+                : new(deviceId, identityId, cursor);
         }
 
         PresenceChanged?.Invoke(this, update);
+        if (cursorUpdate is not null)
+        {
+            CursorChanged?.Invoke(this, cursorUpdate);
+        }
+
         return identity;
     }
 
     public void Leave(Guid connectionId)
     {
         PresenceCollaborationUpdate? update = null;
+        CursorCollaborationUpdate? cursorUpdate = null;
         lock (stateLock)
         {
             if (!connectionDevices.Remove(connectionId, out var deviceId) ||
@@ -183,7 +240,11 @@ public sealed class RobotCollaborationService
                 return;
             }
 
-            session.Connections.Remove(connectionId);
+            if (!session.Connections.Remove(connectionId, out var participant))
+            {
+                return;
+            }
+
             if (session.Connections.Count == 0)
             {
                 sessions.Remove(deviceId);
@@ -192,11 +253,21 @@ public sealed class RobotCollaborationService
             {
                 update = new(deviceId, CreateCollaboratorSnapshot(session));
             }
+
+            cursorUpdate = new(
+                deviceId,
+                participant.Identity.Id,
+                CreateCursorSnapshot(session, participant.Identity.Id));
         }
 
         if (update is not null)
         {
             PresenceChanged?.Invoke(this, update);
+        }
+
+        if (cursorUpdate is not null)
+        {
+            CursorChanged?.Invoke(this, cursorUpdate);
         }
     }
 
@@ -303,6 +374,40 @@ public sealed class RobotCollaborationService
         .ThenBy(collaborator => collaborator.Id, StringComparer.Ordinal)
         .ToArray();
 
+    private static IReadOnlyList<RobotCollaboratorCursor> CreateCursorSnapshot(
+        CollaborationSession session) => session.Connections.Values
+        .Select(connection => connection.Identity.Id)
+        .Distinct(StringComparer.Ordinal)
+        .Select(identityId => CreateCursorSnapshot(session, identityId))
+        .OfType<RobotCollaboratorCursor>()
+        .OrderBy(cursor => cursor.Name, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(cursor => cursor.CollaboratorId, StringComparer.Ordinal)
+        .ToArray();
+
+    private static RobotCollaboratorCursor? CreateCursorSnapshot(
+        CollaborationSession session,
+        string identityId)
+    {
+        var cursorConnection = session.Connections.Values
+            .Where(connection =>
+                connection.Identity.Id == identityId &&
+                connection.CursorWorkspaceX.HasValue &&
+                connection.CursorWorkspaceY.HasValue)
+            .OrderByDescending(connection => connection.CursorUpdatedAt)
+            .FirstOrDefault();
+        if (cursorConnection is null)
+        {
+            return null;
+        }
+
+        return new(
+            cursorConnection.Identity.Id,
+            cursorConnection.Identity.Name,
+            cursorConnection.Identity.Color,
+            cursorConnection.CursorWorkspaceX!.Value,
+            cursorConnection.CursorWorkspaceY!.Value);
+    }
+
     private sealed class CollaborationSession(string workspaceJson, string workspaceName)
     {
         public Dictionary<Guid, Participant> Connections { get; } = [];
@@ -323,5 +428,11 @@ public sealed class RobotCollaborationService
         public string? SelectedBlockDescription { get; set; }
 
         public DateTimeOffset SelectionUpdatedAt { get; set; }
+
+        public double? CursorWorkspaceX { get; set; }
+
+        public double? CursorWorkspaceY { get; set; }
+
+        public DateTimeOffset CursorUpdatedAt { get; set; }
     }
 }
