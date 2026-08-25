@@ -189,7 +189,8 @@ public sealed class RobotCollaborationService
             update = new(
                 deviceId,
                 participant.Identity.Id,
-                CreateCursorSnapshot(session, participant.Identity.Id));
+                CreateCursorSnapshot(session, participant.Identity.Id),
+                false);
         }
 
         CursorChanged?.Invoke(this, update);
@@ -216,7 +217,7 @@ public sealed class RobotCollaborationService
             var cursor = CreateCursorSnapshot(session, identityId);
             cursorUpdate = cursor is null
                 ? null
-                : new(deviceId, identityId, cursor);
+                : new(deviceId, identityId, cursor, false);
         }
 
         PresenceChanged?.Invoke(this, update);
@@ -254,10 +255,13 @@ public sealed class RobotCollaborationService
                 update = new(deviceId, CreateCollaboratorSnapshot(session));
             }
 
+            var collaboratorStillConnected = session.Connections.Values.Any(connection =>
+                connection.Identity.Id == participant.Identity.Id);
             cursorUpdate = new(
                 deviceId,
                 participant.Identity.Id,
-                CreateCursorSnapshot(session, participant.Identity.Id));
+                CreateCursorSnapshot(session, participant.Identity.Id),
+                !collaboratorStillConnected);
         }
 
         if (update is not null)

@@ -46,71 +46,68 @@
                     </span>
                 </div>
 
-                @if (currentCollaborator is not null)
-                {
-                    @if (editingDisplayName)
+                <div class="collaboration-controls">
+                    <div class="collaborator-avatars" aria-label="Active editors" aria-live="polite">
+                        @foreach (var collaborator in collaborators)
+                        {
+                            var isCurrentUser = collaborator.Id == currentCollaborator?.Id;
+                            var accessibleName = isCurrentUser
+                                ? $"{collaborator.Name} (you)"
+                                : collaborator.Name;
+                            <span class="collaborator-avatar @(isCurrentUser ? "current-collaborator" : null)"
+                                  style="--collaborator-color: @collaborator.Color"
+                                  role="img"
+                                  aria-label="@accessibleName"
+                                  tabindex="0">
+                                <span class="collaborator-avatar-circle" aria-hidden="true">
+                                    <svg viewBox="0 0 32 32" focusable="false">
+                                        <circle cx="16" cy="11" r="5.25"></circle>
+                                        <path d="M6.25 27c.45-5.7 4.35-9.1 9.75-9.1S25.3 21.3 25.75 27Z"></path>
+                                    </svg>
+                                </span>
+                                <span class="collaborator-tooltip" role="tooltip">
+                                    @collaborator.Name@(isCurrentUser ? " (you)" : null)
+                                </span>
+                            </span>
+                        }
+                    </div>
+
+                    @if (currentCollaborator is not null)
                     {
-                        <div class="rename-editor">
-                            <label class="visually-hidden" for="collaborator-name">Your display name</label>
-                            <input id="collaborator-name"
-                                   class="form-control form-control-sm"
-                                   maxlength="40"
-                                   disabled="@renameInProgress"
-                                   @bind="requestedDisplayName"
-                                   @bind:event="oninput" />
-                            <button class="btn btn-sm btn-primary"
-                                    type="button"
-                                    disabled="@renameInProgress"
-                                    @onclick="RenameCollaboratorAsync">
-                                Save name
-                            </button>
+                        @if (editingDisplayName)
+                        {
+                            <div class="rename-editor">
+                                <label class="visually-hidden" for="collaborator-name">Your display name</label>
+                                <input id="collaborator-name"
+                                       class="form-control form-control-sm"
+                                       maxlength="40"
+                                       disabled="@renameInProgress"
+                                       @bind="requestedDisplayName"
+                                       @bind:event="oninput" />
+                                <button class="btn btn-sm btn-primary"
+                                        type="button"
+                                        disabled="@renameInProgress"
+                                        @onclick="RenameCollaboratorAsync">
+                                    Save name
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        type="button"
+                                        disabled="@renameInProgress"
+                                        @onclick="CancelRename">
+                                    Cancel
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
                             <button class="btn btn-sm btn-outline-secondary"
                                     type="button"
-                                    disabled="@renameInProgress"
-                                    @onclick="CancelRename">
-                                Cancel
+                                    @onclick="BeginRename">
+                                Change my name
                             </button>
-                        </div>
+                        }
                     }
-                    else
-                    {
-                        <button class="btn btn-sm btn-outline-secondary"
-                                type="button"
-                                @onclick="BeginRename">
-                            Change my name
-                        </button>
-                    }
-                }
-            </div>
-
-            <div class="collaborator-list" aria-live="polite">
-                @foreach (var collaborator in collaborators)
-                {
-                    var isCurrentUser = collaborator.Id == currentCollaborator?.Id;
-                    <div class="collaborator-card @(isCurrentUser ? "current-collaborator" : null)"
-                         style="--collaborator-color: @collaborator.Color">
-                        <span class="collaborator-dot" aria-hidden="true"></span>
-                        <span class="collaborator-summary">
-                            <span class="collaborator-name">
-                                @collaborator.Name
-                                @if (isCurrentUser)
-                                {
-                                    <span class="text-secondary collaborator-you">(you)</span>
-                                }
-                            </span>
-                            <span class="collaborator-selection">
-                                @if (collaborator.SelectedBlockDescription is not null)
-                                {
-                                    <span>Selected: @collaborator.SelectedBlockDescription</span>
-                                }
-                                else
-                                {
-                                    <span>In the workspace</span>
-                                }
-                            </span>
-                        </span>
-                    </div>
-                }
+                </div>
             </div>
         </section>
 
@@ -874,7 +871,8 @@
                 "setRemoteCursor",
                 WorkspaceElementId,
                 update.CollaboratorId,
-                update.Cursor);
+                update.Cursor,
+                update.CollaboratorLeft);
         });
     }
 

@@ -48,4 +48,5 @@ public sealed record PresenceCollaborationUpdate(
 public sealed record CursorCollaborationUpdate(
     string DeviceId,
     string CollaboratorId,
-    RobotCollaboratorCursor? Cursor);
+    RobotCollaboratorCursor? Cursor,
+    bool CollaboratorLeft);

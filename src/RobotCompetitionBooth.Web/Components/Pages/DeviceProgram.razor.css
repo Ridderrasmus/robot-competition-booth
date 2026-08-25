@@ -33,64 +33,107 @@
     gap: 1rem;
 }
 
-.collaborator-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    margin-top: 0.8rem;
-}
-
-.collaborator-card {
-    display: flex;
-    min-width: 12rem;
-    max-width: 20rem;
-    align-items: flex-start;
-    gap: 0.55rem;
-    padding: 0.55rem 0.7rem;
-    border: 1px solid var(--bs-border-color);
-    border-left: 4px solid var(--collaborator-color);
-    border-radius: 0.5rem;
-    background: var(--bs-body-bg);
-}
-
-.collaborator-card.current-collaborator {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--collaborator-color) 45%, transparent);
-}
-
-.collaborator-dot {
-    width: 0.7rem;
-    height: 0.7rem;
-    flex: 0 0 auto;
-    margin-top: 0.3rem;
-    border-radius: 50%;
-    background: var(--collaborator-color);
-}
-
-.collaborator-summary {
+.collaboration-controls {
     display: flex;
     min-width: 0;
-    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
 }
 
-.collaborator-name {
+.collaborator-avatars {
+    display: flex;
+    align-items: center;
+    padding: 0.2rem 0.3rem;
+}
+
+.collaborator-avatar {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 2.35rem;
+    height: 2.35rem;
+    flex: 0 0 2.35rem;
+    margin-left: -0.45rem;
+    border-radius: 50%;
+    outline: none;
+}
+
+.collaborator-avatar:first-child {
+    margin-left: 0;
+}
+
+.collaborator-avatar:hover,
+.collaborator-avatar:focus-visible {
+    z-index: 5;
+}
+
+.collaborator-avatar-circle {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    border: 2px solid var(--collaborator-color);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--collaborator-color) 9%, var(--bs-body-bg));
+    box-shadow:
+        0 0 0 2px var(--bs-body-bg),
+        0 1px 3px rgba(15, 23, 42, 0.2);
+    transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.collaborator-avatar:hover .collaborator-avatar-circle,
+.collaborator-avatar:focus-visible .collaborator-avatar-circle {
+    transform: translateY(-1px);
+    box-shadow:
+        0 0 0 2px var(--bs-body-bg),
+        0 2px 6px rgba(15, 23, 42, 0.24);
+}
+
+.collaborator-avatar:focus-visible .collaborator-avatar-circle {
+    outline: 2px solid color-mix(in srgb, var(--collaborator-color) 45%, transparent);
+    outline-offset: 3px;
+}
+
+.collaborator-avatar.current-collaborator .collaborator-avatar-circle {
+    background: color-mix(in srgb, var(--collaborator-color) 14%, var(--bs-body-bg));
+}
+
+.collaborator-avatar svg {
+    width: 1.65rem;
+    height: 1.65rem;
+    fill: var(--collaborator-color);
+    filter: drop-shadow(0 1px 0 rgba(15, 23, 42, 0.14));
+}
+
+.collaborator-tooltip {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 0.65rem);
+    left: 50%;
+    display: block;
+    max-width: 14rem;
     overflow: hidden;
-    font-size: 0.875rem;
-    font-weight: 600;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.35rem;
+    opacity: 0;
+    color: #fff;
+    background: #202124;
+    box-shadow: 0 2px 7px rgba(15, 23, 42, 0.3);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.2;
+    pointer-events: none;
     text-overflow: ellipsis;
+    transform: translate(-50%, -0.2rem);
+    transition: opacity 100ms ease-out, transform 100ms ease-out;
     white-space: nowrap;
 }
 
-.collaborator-you {
-    margin-left: 0.2rem;
-}
-
-.collaborator-selection {
-    display: -webkit-box;
-    overflow: hidden;
-    color: var(--bs-secondary-color);
-    font-size: 0.75rem;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+.collaborator-avatar:hover .collaborator-tooltip,
+.collaborator-avatar:focus-visible .collaborator-tooltip {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .rename-editor {
@@ -520,17 +563,18 @@
         flex-direction: column;
     }
 
+    .collaboration-controls {
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
     .rename-editor {
         flex-wrap: wrap;
     }
 
     .rename-editor .form-control {
         width: 100%;
-    }
-
-    .collaborator-card {
-        max-width: none;
-        flex: 1 1 100%;
     }
 
     .workspace-toolbar {

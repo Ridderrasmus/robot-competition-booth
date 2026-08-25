@@ -475,12 +475,46 @@ export function setRemoteCursors(elementId, cursors) {
     }
 }
 
-export function setRemoteCursor(elementId, collaboratorId, cursor) {
+function removeRemoteCursor(entry, collaboratorId, animateRemoval) {
+    const remoteCursor = entry.remoteCursors.get(collaboratorId);
+    if (!remoteCursor) {
+        return;
+    }
+
+    entry.remoteCursors.delete(collaboratorId);
+    const shouldAnimate =
+        animateRemoval &&
+        remoteCursor.element.style.opacity === "1" &&
+        typeof remoteCursor.element.animate === "function";
+    if (!shouldAnimate) {
+        remoteCursor.element.remove();
+        return;
+    }
+
+    const restingTransform = remoteCursor.element.style.transform;
+    const animation = remoteCursor.element.animate([
+        { transform: `${restingTransform} scale(1)`, opacity: 1 },
+        { transform: `${restingTransform} scale(1.06)`, opacity: 0.9, offset: 0.45 },
+        { transform: `${restingTransform} scale(0.86)`, opacity: 0 }
+    ], {
+        duration: 180,
+        easing: "cubic-bezier(0.2, 0.75, 0.35, 1)",
+        fill: "forwards"
+    });
+    animation.finished
+        .catch(() => {})
+        .finally(() => remoteCursor.element.remove());
+}
+
+export function setRemoteCursor(
+    elementId,
+    collaboratorId,
+    cursor,
+    collaboratorLeft = false) {
     const entry = getEntry(elementId);
     const existingCursor = entry.remoteCursors.get(collaboratorId);
     if (!cursor) {
-        existingCursor?.element.remove();
-        entry.remoteCursors.delete(collaboratorId);
+        removeRemoteCursor(entry, collaboratorId, collaboratorLeft);
         return;
     }
 
