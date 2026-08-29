@@ -1,0 +1,126 @@
+@implements IDisposable
+@inject RobotDiagnosticLogService DiagnosticLogs
+@inject RobotDeviceStateService DeviceState
+
+<section class="robot-terminal" aria-labelledby="robot-terminal-heading">
+    <header class="robot-terminal-header">
+        <div>
+            <span class="terminal-eyebrow">MQTT diagnostic telemetry</span>
+            <h2 id="robot-terminal-heading">@DeviceId</h2>
+        </div>
+        <span class="badge @(isOnline ? "text-bg-success" : "text-bg-secondary")">
+            @(isOnline ? "Online" : "Offline")
+        </span>
+    </header>
+
+    <p class="robot-terminal-status">
+        Read-only logs reported by this robot. USB serial output is not displayed here.
+    </p>
+    <div class="robot-terminal-frame">
+        <Xterm @ref="terminal" Options="terminalOptions" OnFirstRender="HandleFirstRenderAsync" />
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public string DeviceId { get; set; } = string.Empty;
+
+    private Xterm? terminal;
+    private bool isOnline;
+    private long lastWrittenHostSequence;
+
+    private readonly TerminalOptions terminalOptions = new()
+    {
+        ConvertEOL = true,
+        CursorBlink = false,
+        DisableStdin = true,
+        FontFamily = "Cascadia Mono, Consolas, monospace",
+        FontSize = 13,
+        Rows = 18,
+        Scrollback = 2000,
+        Theme = new Theme
+        {
+            Background = "#09111f",
+            Foreground = "#dbeafe",
+            BrightBlack = "#64748b",
+            Green = "#4ade80",
+            Red = "#fb7185",
+            Yellow = "#facc15",
+            Blue = "#60a5fa",
+            Cyan = "#22d3ee"
+        }
+    };
+
+    protected override void OnInitialized()
+    {
+        isOnline = DeviceState.GetDevice(DeviceId)?.IsOnline is true;
+        DiagnosticLogs.LogReceived += HandleLogReceived;
+        DeviceState.StateChanged += HandleDeviceStateChanged;
+    }
+
+    private async Task HandleFirstRenderAsync()
+    {
+        if (terminal is null)
+        {
+            return;
+        }
+
+        var snapshot = DiagnosticLogs.GetSnapshot(DeviceId);
+        if (snapshot.Count == 0)
+        {
+            await terminal.WriteLine("\u001b[90mWaiting for diagnostic telemetry from this robot.\u001b[0m");
+            return;
+        }
+
+        foreach (var line in snapshot)
+        {
+            await WriteLineAsync(line);
+        }
+    }
+
+    private void HandleLogReceived(object? sender, RobotDiagnosticLogEntry line)
+    {
+        if (line.DeviceId == DeviceId)
+        {
+            _ = InvokeAsync(() => WriteLineAsync(line));
+        }
+    }
+
+    private void HandleDeviceStateChanged(object? sender, EventArgs eventArgs) =>
+        _ = InvokeAsync(() =>
+        {
+            var updatedOnline = DeviceState.GetDevice(DeviceId)?.IsOnline is true;
+            if (updatedOnline != isOnline)
+            {
+                isOnline = updatedOnline;
+                StateHasChanged();
+            }
+        });
+
+    private async Task WriteLineAsync(RobotDiagnosticLogEntry line)
+    {
+        if (terminal is null || line.HostSequence <= lastWrittenHostSequence)
+        {
+            return;
+        }
+
+        lastWrittenHostSequence = line.HostSequence;
+        var levelColour = line.Level switch
+        {
+            "error" => "\u001b[91m",
+            "warn" => "\u001b[93m",
+            "debug" => "\u001b[90m",
+            _ => "\u001b[96m"
+        };
+        await terminal.WriteLine(
+            $"\u001b[90m[{line.ReceivedAt:HH:mm:ss.fff}]\u001b[0m " +
+            $"{levelColour}{line.Level.ToUpperInvariant(),-5}\u001b[0m " +
+            $"\u001b[94m{line.Source}\u001b[0m {line.Message}");
+    }
+
+    public void Dispose()
+    {
+        DiagnosticLogs.LogReceived -= HandleLogReceived;
+        DeviceState.StateChanged -= HandleDeviceStateChanged;
+    }
+}

@@ -14,22 +14,28 @@ public sealed class EmbeddedMqttBrokerService(
     IOptions<EmbeddedMqttOptions> options,
     MqttBrokerAccessService accessService,
     RobotDeviceStateService deviceState,
+    RobotDiagnosticLogService diagnosticLogs,
     ILogger<EmbeddedMqttBrokerService> logger) : BackgroundService
 {
     private const string TopicPrefix = "robobooth/v1/devices/";
     private const string HostClientId = "robobooth-host";
     private const string ColorTopicSuffix = "/state/color";
     private const string SensorSnapshotTopicSuffix = "/telemetry/sensors";
+    private const string DiagnosticLogTopicSuffix = "/telemetry/logs";
     private const string StatusTopicSuffix = "/status";
     private const string ProgramStatusTopicSuffix = "/program/status";
     private const int MaximumPayloadLength = 512;
     private const int MaximumSensorSnapshotPayloadLength = 8 * 1024;
+    private const int MaximumDiagnosticLogPayloadLength = 2 * 1024;
 
     private static readonly HashSet<string> RuntimeModes = new(
         ["idle", "running", "fault"],
         StringComparer.Ordinal);
     private static readonly HashSet<string> DetectedColours = new(
         ["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black", "unknown"],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> DiagnosticLevels = new(
+        ["debug", "info", "warn", "error"],
         StringComparer.Ordinal);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -172,6 +178,10 @@ public sealed class EmbeddedMqttBrokerService(
         {
             ProcessSensorSnapshotMessage(args);
         }
+        else if (topic.Equals(expectedPrefix + DiagnosticLogTopicSuffix, StringComparison.Ordinal))
+        {
+            ProcessDiagnosticLogMessage(args);
+        }
         else if (topic.Equals(expectedPrefix + StatusTopicSuffix, StringComparison.Ordinal))
         {
             ProcessStatusMessage(args);
@@ -228,6 +238,36 @@ public sealed class EmbeddedMqttBrokerService(
         catch (JsonException)
         {
             RejectPublish(args, "colour payload is not valid JSON");
+        }
+    }
+
+    private void ProcessDiagnosticLogMessage(InterceptingPublishEventArgs args)
+    {
+        if (!TryReadPayload(args, out var payload, MaximumDiagnosticLogPayloadLength))
+        {
+            return;
+        }
+
+        try
+        {
+            var message = JsonSerializer.Deserialize<RobotDiagnosticLogMessage>(payload, JsonOptions);
+            if (message is null ||
+                message.Version != 1 ||
+                message.Sequence < 0 ||
+                message.UptimeMs < 0 ||
+                !DiagnosticLevels.Contains(message.Level) ||
+                !IsSafeDiagnosticText(message.Source, 1, 32) ||
+                !IsSafeDiagnosticText(message.Message, 1, 512))
+            {
+                RejectPublish(args, "diagnostic log payload is invalid");
+                return;
+            }
+
+            diagnosticLogs.Append(args.ClientId, message);
+        }
+        catch (JsonException)
+        {
+            RejectPublish(args, "diagnostic log payload is not valid JSON");
         }
     }
 
@@ -314,6 +354,12 @@ public sealed class EmbeddedMqttBrokerService(
         value is { Length: 7 } &&
         value[0] == '#' &&
         value.AsSpan(1).ContainsAnyExcept(SearchValues.Create("0123456789abcdefABCDEF")) is false;
+
+    private static bool IsSafeDiagnosticText(string? value, int minimumLength, int maximumLength) =>
+        value is not null &&
+        value.Length >= minimumLength &&
+        value.Length <= maximumLength &&
+        value.All(character => character is >= ' ' and <= '~');
 
     private static bool IsValidSensorSnapshot(RobotSensorSnapshot snapshot)
     {

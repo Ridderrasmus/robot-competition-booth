@@ -15,7 +15,12 @@ class ProgramRuntime {
 public:
     using StatusCallback = std::function<void(const char*, const char*, const char*)>;
     using LightCallback = std::function<void(uint8_t, uint8_t, uint8_t)>;
-    ProgramRuntime(HardwareConfiguration& hardware, StatusCallback status, LightCallback light);
+    using LogCallback = std::function<void(const char*, const String&)>;
+    ProgramRuntime(
+        HardwareConfiguration& hardware,
+        StatusCallback status,
+        LightCallback light,
+        LogCallback log);
     bool deploy(const String& envelope, String& error);
     bool control(const String& command, String& error);
     void tick();
@@ -26,6 +31,7 @@ private:
     HardwareConfiguration& hardware_;
     StatusCallback status_;
     LightCallback light_;
+    LogCallback log_;
     JsonDocument package_;
     String programId_;
     bool running_ = false, stopRequested_ = false;

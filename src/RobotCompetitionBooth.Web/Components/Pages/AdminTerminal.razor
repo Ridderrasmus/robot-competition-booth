@@ -1,6 +1,9 @@
 @page "/admin/terminal"
+@implements IDisposable
+@inject RobotDeviceStateService DeviceState
+@inject RobotDiagnosticLogService DiagnosticLogs
 
-<PageTitle>Robot terminal</PageTitle>
+<PageTitle>Robot terminals</PageTitle>
 
 <AdminGate>
     <div class="admin-terminal-page">
@@ -8,12 +11,86 @@
 
         <header class="admin-terminal-heading">
             <span class="admin-eyebrow">Robot diagnostics</span>
-            <h1 class="mb-1">Live serial output</h1>
+            <h1 class="mb-1">Robot terminals</h1>
             <p class="text-secondary mb-0">
-                Read-only output from the robot's USB serial connection. This log is available only after admin unlock.
+                Open the diagnostic telemetry reported by one robot. These logs are separate from USB serial output.
             </p>
         </header>
 
-        <RobotSerialTerminal />
+        @if (robots.Count == 0)
+        {
+            <section class="terminal-empty">
+                <strong>No known robots</strong>
+                <span>A terminal becomes available after a robot connects to the MQTT broker.</span>
+            </section>
+        }
+        else
+        {
+            <div class="terminal-robot-list">
+                @foreach (var robot in robots)
+                {
+                    <article class="terminal-robot-row" @key="robot.DeviceId">
+                        <span class="terminal-robot-state @(robot.IsOnline ? "online" : null)" aria-hidden="true"></span>
+                        <span class="terminal-robot-identity">
+                            <strong>@robot.DeviceName</strong>
+                            <code>@robot.DeviceId</code>
+                        </span>
+                        <span class="terminal-line-count">@robot.LineCount line@(robot.LineCount == 1 ? string.Empty : "s")</span>
+                        <a class="btn btn-outline-primary" href="@GetTerminalUrl(robot.DeviceId)">
+                            Open terminal
+                        </a>
+                    </article>
+                }
+            </div>
+        }
     </div>
 </AdminGate>
+
+@code {
+    private IReadOnlyList<RobotTerminalListItem> robots = [];
+
+    protected override void OnInitialized()
+    {
+        DeviceState.StateChanged += HandleStateChanged;
+        DiagnosticLogs.LogReceived += HandleLogReceived;
+        RefreshRobots();
+    }
+
+    private void HandleStateChanged(object? sender, EventArgs eventArgs) =>
+        _ = InvokeAsync(RefreshAndRender);
+
+    private void HandleLogReceived(object? sender, RobotDiagnosticLogEntry line) =>
+        _ = InvokeAsync(RefreshAndRender);
+
+    private void RefreshAndRender()
+    {
+        RefreshRobots();
+        StateHasChanged();
+    }
+
+    private void RefreshRobots()
+    {
+        robots = DeviceState.GetDevices()
+            .Select(device => new RobotTerminalListItem(
+                device.DeviceId,
+                device.DeviceName,
+                device.IsOnline,
+                DiagnosticLogs.GetLineCount(device.DeviceId)))
+            .ToArray();
+    }
+
+    private static string GetTerminalUrl(string deviceId) =>
+        $"/admin/terminal/{Uri.EscapeDataString(deviceId)}";
+
+    public void Dispose()
+    {
+        DeviceState.StateChanged -= HandleStateChanged;
+        DiagnosticLogs.LogReceived -= HandleLogReceived;
+    }
+
+    private sealed record RobotTerminalListItem(
+        string DeviceId,
+        string DeviceName,
+        bool IsOnline,
+        int LineCount);
+}

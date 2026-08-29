@@ -1,0 +1,50 @@
+@page "/admin/terminal/{DeviceId}"
+@inject RobotDeviceStateService DeviceState
+
+<PageTitle>Robot terminal</PageTitle>
+
+<AdminGate>
+    <div class="admin-robot-terminal-page">
+        <a class="back-link" href="/admin/terminal">← Back to robot terminals</a>
+
+        @if (!validDeviceId)
+        {
+            <div class="alert alert-danger mt-3" role="alert">That robot device ID is invalid.</div>
+        }
+        else
+        {
+            <header class="admin-robot-terminal-heading">
+                <span class="admin-eyebrow">Per-robot diagnostics</span>
+                <h1 class="mb-1">@(device?.DeviceName ?? DeviceId)</h1>
+                <p class="text-secondary mb-0">
+                    Logs sent by <code>@DeviceId</code> over authenticated MQTT telemetry.
+                </p>
+            </header>
+
+            <RobotTelemetryTerminal DeviceId="@DeviceId" />
+        }
+    </div>
+</AdminGate>
+
+@code {
+    [Parameter]
+    public string DeviceId { get; set; } = string.Empty;
+
+    private RobotDeviceState? device;
+    private bool validDeviceId;
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            DeviceProgramStore.ValidateDeviceId(DeviceId);
+            validDeviceId = true;
+            device = DeviceState.GetDevice(DeviceId);
+        }
+        catch (ArgumentException)
+        {
+            validDeviceId = false;
+            device = null;
+        }
+    }
+}

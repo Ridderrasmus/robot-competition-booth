@@ -41,6 +41,7 @@ builder.Services.AddSingleton<WifiNetworkScanner>();
 builder.Services.AddSingleton<MqttBrokerAccessService>();
 builder.Services.AddSingleton<MqttBrokerEndpointProvider>();
 builder.Services.AddSingleton<RobotDeviceStateService>();
+builder.Services.AddSingleton<RobotDiagnosticLogService>();
 builder.Services.AddSingleton<DeviceProgramStore>();
 builder.Services.AddSingleton<WorkspaceCompiler>();
 builder.Services.AddSingleton<RobotProgramDeploymentService>();

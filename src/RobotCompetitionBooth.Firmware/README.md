@@ -24,6 +24,8 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
   tested before physical sensor drivers are connected. Distance, detected colour, light, all five line channels,
   line position, both encoders/speeds, and all five servo angles continuously change over time.
 - Publishes retained online/offline state and automatically reconnects to Wi-Fi and MQTT.
+- Queues up to 32 diagnostic messages and publishes them on the authenticated robot-specific `telemetry/logs`
+  topic for its admin-only terminal. Pairing passkeys remain local to USB serial output.
 - Restarts advertising after a client disconnects.
 - Uses red as a fatal-startup indicator; during normal operation the built-in RGB LED runs the colour animation.
 

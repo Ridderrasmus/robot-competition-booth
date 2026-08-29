@@ -8,6 +8,7 @@
 #include "ProgramRuntime.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstring>
 #include <vector>
 
@@ -42,6 +43,9 @@ constexpr unsigned long SensorPublishIntervalMs = 200;
 constexpr unsigned long SensorPublishErrorLogIntervalMs = 5000;
 constexpr unsigned long LedRefreshIntervalMs = 30;
 constexpr uint8_t LedBrightness = 28;
+constexpr size_t DiagnosticLogQueueLength = 32;
+constexpr size_t MaximumDiagnosticLogMessageLength = 320;
+constexpr size_t MaximumDiagnosticLogsPerLoop = 4;
 
 struct ProvisioningMessage {
     char ssid[MaximumSsidLength + 1];
@@ -57,8 +61,17 @@ struct RgbColor {
     uint8_t blue;
 };
 
+struct DiagnosticLogMessage {
+    uint32_t sequence;
+    uint32_t uptimeMs;
+    char level[8];
+    char source[24];
+    char message[MaximumDiagnosticLogMessageLength + 1];
+};
+
 NimBLECharacteristic* provisioningStatusCharacteristic = nullptr;
 QueueHandle_t provisioningQueue = nullptr;
+QueueHandle_t diagnosticLogQueue = nullptr;
 WiFiClient wifiClient;
 // Deployments need a large receive buffer, but robot publications are small.
 // Keeping the write buffer bounded avoids reserving a second 256 KiB heap block.
@@ -67,6 +80,7 @@ MQTTClient mqttClient(256 * 1024, 8 * 1024);
 char deviceId[32]{};
 char colorTopic[128]{};
 char sensorTopic[128]{};
+char diagnosticLogTopic[128]{};
 char statusTopic[128]{};
 char programDeployTopic[128]{};
 char programControlTopic[128]{};
@@ -90,6 +104,8 @@ unsigned long lastSensorPublishErrorAt = 0;
 unsigned long lastLedRefreshAt = 0;
 uint32_t colorSequence = 0;
 uint32_t sensorSequence = 0;
+uint32_t diagnosticLogSequence = 0;
+portMUX_TYPE diagnosticLogSequenceLock = portMUX_INITIALIZER_UNLOCKED;
 RgbColor currentColor{255, 0, 0};
 bool idleConnectionState = false;
 bool idleConnectionStateInitialized = false;
@@ -105,6 +121,70 @@ struct PendingProgramStatus {
 };
 
 PendingProgramStatus pendingProgramStatus;
+
+void logDiagnostic(const char* level, const char* source, const char* format, ...) {
+    DiagnosticLogMessage entry{};
+    portENTER_CRITICAL(&diagnosticLogSequenceLock);
+    entry.sequence = diagnosticLogSequence++;
+    portEXIT_CRITICAL(&diagnosticLogSequenceLock);
+    entry.uptimeMs = millis();
+    snprintf(entry.level, sizeof(entry.level), "%s", level == nullptr ? "info" : level);
+    snprintf(entry.source, sizeof(entry.source), "%s", source == nullptr ? "firmware" : source);
+
+    va_list arguments;
+    va_start(arguments, format);
+    vsnprintf(entry.message, sizeof(entry.message), format, arguments);
+    va_end(arguments);
+
+    size_t messageLength = strlen(entry.message);
+    while (messageLength > 0 &&
+           (entry.message[messageLength - 1] == '\r' || entry.message[messageLength - 1] == '\n')) {
+        entry.message[--messageLength] = '\0';
+    }
+    if (messageLength == 0) {
+        return;
+    }
+
+    Serial.printf("[%s] %s\n", entry.source, entry.message);
+    if (diagnosticLogQueue == nullptr) {
+        return;
+    }
+
+    if (xQueueSend(diagnosticLogQueue, &entry, 0) != pdPASS) {
+        DiagnosticLogMessage discarded{};
+        xQueueReceive(diagnosticLogQueue, &discarded, 0);
+        xQueueSend(diagnosticLogQueue, &entry, 0);
+    }
+}
+
+void flushDiagnosticLogs() {
+    if (!mqttClient.connected() || diagnosticLogQueue == nullptr || diagnosticLogTopic[0] == '\0') {
+        return;
+    }
+
+    for (size_t published = 0; published < MaximumDiagnosticLogsPerLoop; ++published) {
+        DiagnosticLogMessage entry{};
+        if (xQueuePeek(diagnosticLogQueue, &entry, 0) != pdPASS) {
+            return;
+        }
+
+        JsonDocument document;
+        document["version"] = 1;
+        document["sequence"] = entry.sequence;
+        document["uptimeMs"] = entry.uptimeMs;
+        document["level"] = entry.level;
+        document["source"] = entry.source;
+        document["message"] = entry.message;
+        char payload[768]{};
+        const size_t payloadLength = serializeJson(document, payload, sizeof(payload));
+        if (payloadLength == 0 || payloadLength >= sizeof(payload) ||
+            !mqttClient.publish(diagnosticLogTopic, payload, false, 0)) {
+            return;
+        }
+
+        xQueueReceive(diagnosticLogQueue, &entry, 0);
+    }
+}
 
 void publishProgramStatus(const char* requestId, const char* state, const char* errorCode) {
     if (!mqttClient.connected()) return;
@@ -135,15 +215,15 @@ void flushProgramStatus() {
 
 void receiveMqttMessage(String& topic, String& payload) {
     if (programRuntime == nullptr) return;
-    Serial.printf("Received %s (%u bytes).\n", topic.c_str(), static_cast<unsigned>(payload.length()));
+    logDiagnostic("debug", "mqtt", "Received %s (%u bytes).", topic.c_str(), static_cast<unsigned>(payload.length()));
     String error;
     bool accepted = false;
     if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
     else if (topic == programControlTopic) accepted = programRuntime->control(payload, error);
     if (accepted) {
-        Serial.printf("Accepted %s.\n", topic.c_str());
+        logDiagnostic("info", "mqtt", "Accepted %s.", topic.c_str());
     } else if (!error.isEmpty()) {
-        Serial.printf("Rejected %s: %s.\n", topic.c_str(), error.c_str());
+        logDiagnostic("warn", "mqtt", "Rejected %s: %s.", topic.c_str(), error.c_str());
         queueProgramStatus("", "failed", error.c_str());
     }
 }
@@ -175,8 +255,10 @@ void updateIdleStatusLight() {
     if (!idleConnectionStateInitialized || connected != idleConnectionState) {
         idleConnectionState = connected;
         idleConnectionStateInitialized = true;
-        Serial.printf(
-            "Idle status light: %s (BLE authenticated: %s, MQTT connected: %s).\n",
+        logDiagnostic(
+            "debug",
+            "status-light",
+            "Idle status light: %s (BLE authenticated: %s, MQTT connected: %s).",
             connected ? "green" : "red",
             bleAuthenticated ? "yes" : "no",
             mqttClient.connected() ? "yes" : "no");
@@ -191,14 +273,16 @@ void updateIdleStatusLight() {
 class ServerCallbacks final : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* server, NimBLEConnInfo& connection) override {
         bleAuthenticated = false;
-        Serial.printf(
-            "BLE client connected: %s\n",
+        logDiagnostic(
+            "info",
+            "bluetooth",
+            "BLE client connected: %s",
             connection.getAddress().toString().c_str());
         Serial.printf("Pairing passkey: %06lu\n", static_cast<unsigned long>(PairingPasskey));
 
         int returnCode = 0;
         if (!NimBLEDevice::startSecurity(connection.getConnHandle(), &returnCode)) {
-            Serial.printf("Could not start BLE security (code %d); disconnecting.\n", returnCode);
+            logDiagnostic("error", "bluetooth", "Could not start BLE security (code %d); disconnecting.", returnCode);
             server->disconnect(connection.getConnHandle());
         }
     }
@@ -208,8 +292,10 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
         NimBLEConnInfo& connection,
         int reason) override {
         bleAuthenticated = false;
-        Serial.printf(
-            "BLE client disconnected: %s (reason %d)\n",
+        logDiagnostic(
+            "info",
+            "bluetooth",
+            "BLE client disconnected: %s (reason %d)",
             connection.getAddress().toString().c_str(),
             reason);
     }
@@ -222,15 +308,17 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     void onAuthenticationComplete(NimBLEConnInfo& connection) override {
         if (!connection.isEncrypted() || !connection.isAuthenticated()) {
             bleAuthenticated = false;
-            Serial.println("BLE authentication failed; disconnecting client.");
+            logDiagnostic("error", "bluetooth", "BLE authentication failed; disconnecting client.");
             NimBLEDevice::getServer()->disconnect(connection.getConnHandle());
             return;
         }
 
         bleAuthenticated = true;
 
-        Serial.printf(
-            "BLE pairing succeeded: %s\n",
+        logDiagnostic(
+            "info",
+            "bluetooth",
+            "BLE pairing succeeded: %s",
             connection.getAddress().toString().c_str());
     }
 };
@@ -431,7 +519,7 @@ void publishColor(bool force = false) {
         static_cast<unsigned long>(colorSequence++));
 
     if (!mqttClient.publish(colorTopic, payload, true, 1)) {
-        Serial.println("Could not publish the current colour over MQTT.");
+        logDiagnostic("warn", "telemetry", "Could not publish the current colour over MQTT.");
     }
 }
 
@@ -546,7 +634,7 @@ void publishSyntheticSensorSnapshot(bool force = false) {
     if (payloadLength <= 0 || static_cast<size_t>(payloadLength) >= sizeof(payload)) {
         if (now - lastSensorPublishErrorAt >= SensorPublishErrorLogIntervalMs) {
             lastSensorPublishErrorAt = now;
-            Serial.println("Synthetic sensor payload exceeded its buffer.");
+            logDiagnostic("error", "telemetry", "Synthetic sensor payload exceeded its buffer.");
         }
         return;
     }
@@ -554,7 +642,7 @@ void publishSyntheticSensorSnapshot(bool force = false) {
     if (!mqttClient.publish(sensorTopic, payload, false, 0) &&
         now - lastSensorPublishErrorAt >= SensorPublishErrorLogIntervalMs) {
         lastSensorPublishErrorAt = now;
-        Serial.println("Could not publish synthetic sensor telemetry over MQTT.");
+        logDiagnostic("warn", "telemetry", "Could not publish synthetic sensor telemetry over MQTT.");
     }
 }
 
@@ -591,14 +679,14 @@ void tryConnectMqtt() {
         mqttClient.subscribe(programControlTopic, 1);
         publishColor(true);
         publishSyntheticSensorSnapshot(true);
-        Serial.println("Connected to the embedded MQTT broker.");
+        logDiagnostic("info", "mqtt", "Connected to the embedded MQTT broker.");
         return;
     }
 
     if (!mqttFailureReported && now - mqttConnectionStartedAt >= InitialMqttConnectionTimeoutMs) {
         mqttFailureReported = true;
         setProvisioningStatus("mqtt-failed");
-        Serial.println("Could not connect to the embedded MQTT broker; retrying in the background.");
+        logDiagnostic("warn", "mqtt", "Could not connect to the embedded MQTT broker; retrying in the background.");
     }
 }
 
@@ -623,7 +711,7 @@ void startPendingProvisioning() {
     if (settingsAlreadyActive) {
         std::memset(&settings, 0, sizeof(settings));
         setProvisioningStatus("mqtt-connected");
-        Serial.println("Received the already-active network settings; keeping the existing MQTT connection.");
+        logDiagnostic("info", "provisioning", "Received the already-active network settings; keeping the existing MQTT connection.");
         return;
     }
 
@@ -655,7 +743,7 @@ void startPendingProvisioning() {
     initialWifiConnection = true;
     wifiConnectionStartedAt = millis();
     setProvisioningStatus("wifi-connecting");
-    Serial.println("Received Wi-Fi and MQTT settings over authenticated BLE; connecting.");
+    logDiagnostic("info", "provisioning", "Received Wi-Fi and MQTT settings over authenticated BLE; connecting.");
 }
 
 void updateNetworkConnections() {
@@ -664,7 +752,7 @@ void updateNetworkConnections() {
         if (wifiWasConnected) {
             wifiWasConnected = false;
             setProvisioningStatus("wifi-connecting");
-            Serial.println("Wi-Fi connection was lost; waiting for automatic reconnection.");
+            logDiagnostic("warn", "wifi", "Wi-Fi connection was lost; waiting for automatic reconnection.");
         }
 
         if (initialWifiConnection &&
@@ -676,7 +764,7 @@ void updateNetworkConnections() {
             std::memset(mqttPassword, 0, sizeof(mqttPassword));
             WiFi.disconnect(false, true);
             setProvisioningStatus("wifi-failed");
-            Serial.println("Wi-Fi connection failed; provisioned settings were discarded.");
+            logDiagnostic("error", "wifi", "Wi-Fi connection failed; provisioned settings were discarded.");
         }
 
         return;
@@ -686,12 +774,14 @@ void updateNetworkConnections() {
         wifiWasConnected = true;
         initialWifiConnection = false;
         configureMqttClient();
-        Serial.println("Wi-Fi connection established; connecting to MQTT.");
+        logDiagnostic("info", "wifi", "Wi-Fi connection established; connecting to MQTT.");
     }
 
     if (mqttClient.connected() && !mqttClient.loop()) {
-        Serial.printf(
-            "MQTT loop ended the connection (error %d, return code %d); reconnecting.\n",
+        logDiagnostic(
+            "warn",
+            "mqtt",
+            "MQTT loop ended the connection (error %d, return code %d); reconnecting.",
             static_cast<int>(mqttClient.lastError()),
             static_cast<int>(mqttClient.returnCode()));
     }
@@ -701,6 +791,7 @@ void updateNetworkConnections() {
     }
     flushProgramStatus();
     tryConnectMqtt();
+    flushDiagnosticLogs();
     publishColor();
     publishSyntheticSensorSnapshot();
 }
@@ -714,8 +805,12 @@ void setup() {
     delay(500);
 
     Serial.println();
-    Serial.println("Starting Robot Competition Booth firmware...");
-    Serial.printf("Detected PSRAM: %u bytes\n", ESP.getPsramSize());
+    diagnosticLogQueue = xQueueCreate(DiagnosticLogQueueLength, sizeof(DiagnosticLogMessage));
+    logDiagnostic("info", "startup", "Starting Robot Competition Booth firmware...");
+    logDiagnostic("info", "startup", "Detected PSRAM: %u bytes", ESP.getPsramSize());
+    if (diagnosticLogQueue == nullptr) {
+        Serial.println("Diagnostic telemetry queue is unavailable; continuing without remote logs.");
+    }
 
     const uint64_t chipId = ESP.getEfuseMac() & 0xFFFFFFFFFFFFULL;
     snprintf(
@@ -725,6 +820,7 @@ void setup() {
         static_cast<unsigned long long>(chipId));
     snprintf(colorTopic, sizeof(colorTopic), "robobooth/v1/devices/%s/state/color", deviceId);
     snprintf(sensorTopic, sizeof(sensorTopic), "robobooth/v1/devices/%s/telemetry/sensors", deviceId);
+    snprintf(diagnosticLogTopic, sizeof(diagnosticLogTopic), "robobooth/v1/devices/%s/telemetry/logs", deviceId);
     snprintf(statusTopic, sizeof(statusTopic), "robobooth/v1/devices/%s/status", deviceId);
     snprintf(programDeployTopic, sizeof(programDeployTopic), "robobooth/v1/devices/%s/program/deploy", deviceId);
     snprintf(programControlTopic, sizeof(programControlTopic), "robobooth/v1/devices/%s/program/control", deviceId);
@@ -735,20 +831,23 @@ void setup() {
         [](uint8_t red, uint8_t green, uint8_t blue) {
             currentColor = {red, green, blue};
             showStatus(red, green, blue);
+        },
+        [](const char* level, const String& message) {
+            logDiagnostic(level, "runtime", "%s", message.c_str());
         });
     mqttClient.onMessage(receiveMqttMessage);
 
     provisioningQueue = xQueueCreate(1, sizeof(ProvisioningMessage));
     if (provisioningQueue == nullptr) {
         showStatus(24, 0, 0);
-        Serial.println("Failed to allocate the provisioning queue. Restarting in 5 seconds.");
+        logDiagnostic("error", "startup", "Failed to allocate the provisioning queue. Restarting in 5 seconds.");
         delay(5000);
         ESP.restart();
     }
 
     if (!NimBLEDevice::init(DeviceName)) {
         showStatus(24, 0, 0);
-        Serial.println("Failed to initialize Bluetooth. Restarting in 5 seconds.");
+        logDiagnostic("error", "bluetooth", "Failed to initialize Bluetooth. Restarting in 5 seconds.");
         delay(5000);
         ESP.restart();
     }
@@ -781,7 +880,7 @@ void setup() {
 
     if (!server->start()) {
         showStatus(24, 0, 0);
-        Serial.println("Failed to start the BLE GATT server. Restarting in 5 seconds.");
+        logDiagnostic("error", "bluetooth", "Failed to start the BLE GATT server. Restarting in 5 seconds.");
         delay(5000);
         ESP.restart();
     }
@@ -793,7 +892,7 @@ void setup() {
 
     if (!advertising->start()) {
         showStatus(24, 0, 0);
-        Serial.println("Failed to start BLE advertising. Restarting in 5 seconds.");
+        logDiagnostic("error", "bluetooth", "Failed to start BLE advertising. Restarting in 5 seconds.");
         delay(5000);
         ESP.restart();
     }
@@ -810,7 +909,7 @@ void setup() {
     WiFi.setAutoReconnect(true);
     WiFi.disconnect(false, true);
 
-    Serial.printf("Advertising as %s (%s)\n", DeviceName, deviceId);
+    logDiagnostic("info", "bluetooth", "Advertising as %s (%s)", DeviceName, deviceId);
     Serial.printf("Pair using passkey %06lu\n", static_cast<unsigned long>(PairingPasskey));
 }
 

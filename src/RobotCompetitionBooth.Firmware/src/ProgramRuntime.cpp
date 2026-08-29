@@ -15,8 +15,15 @@ bool supported(const char* op) {
 float clampSpeed(double value) { return constrain(static_cast<float>(value), -100.0f, 100.0f); }
 }
 
-ProgramRuntime::ProgramRuntime(HardwareConfiguration& hardware, StatusCallback status, LightCallback light)
-    : hardware_(hardware), status_(std::move(status)), light_(std::move(light)) {}
+ProgramRuntime::ProgramRuntime(
+    HardwareConfiguration& hardware,
+    StatusCallback status,
+    LightCallback light,
+    LogCallback log)
+    : hardware_(hardware),
+      status_(std::move(status)),
+      light_(std::move(light)),
+      log_(std::move(log)) {}
 
 bool ProgramRuntime::deploy(const String& envelope, String& error) {
     JsonDocument incoming;
@@ -26,9 +33,7 @@ bool ProgramRuntime::deploy(const String& envelope, String& error) {
         DeserializationOption::NestingLimit(160));
     if (parseResult) {
         error = "invalid-envelope";
-        Serial.printf(
-            "Program deployment failed: invalid JSON envelope (%s).\n",
-            parseResult.c_str());
+        log_("error", String("Program deployment failed: invalid JSON envelope (") + parseResult.c_str() + ").");
         return false;
     }
     JsonObjectConst root = incoming.as<JsonObjectConst>();
@@ -44,10 +49,10 @@ bool ProgramRuntime::deploy(const String& envelope, String& error) {
     package_.clear();
     package_.set(candidate);
     programId_ = package_["programId"].as<String>();
-    Serial.printf(
-        "Program deployment accepted: %s (%u entrypoints).\n",
-        programId_.c_str(),
-        static_cast<unsigned>(package_["entrypoints"].as<JsonArrayConst>().size()));
+    log_(
+        "info",
+        String("Program deployment accepted: ") + programId_ + " (" +
+            static_cast<unsigned>(package_["entrypoints"].as<JsonArrayConst>().size()) + " entrypoints).");
     status_(root["requestId"] | "", "ready", "");
     return true;
 }
@@ -63,12 +68,12 @@ bool ProgramRuntime::control(const String& command, String& error) {
     JsonDocument message;
     if (deserializeJson(message, command) || message["version"].as<int>() != 1) {
         error = "invalid-envelope";
-        Serial.println("Program control failed: invalid JSON envelope.");
+        log_("error", "Program control failed: invalid JSON envelope.");
         return false;
     }
     const char* action = message["action"] | "";
     if (!strcmp(action, "stop")) {
-        Serial.printf("Program stop requested: %s.\n", programId_.c_str());
+        log_("info", String("Program stop requested: ") + programId_ + ".");
         stopRequested_ = true;
         safeStop();
         status_(message["requestId"] | "", "stopped", "");
@@ -76,13 +81,13 @@ bool ProgramRuntime::control(const String& command, String& error) {
     }
     if (strcmp(action, "run") || programId_.isEmpty() || message["programId"].as<String>() != programId_) {
         error = "program-not-found";
-        Serial.printf(
-            "Program run rejected: requested '%s', deployed '%s'.\n",
-            message["programId"].as<String>().c_str(),
-            programId_.c_str());
+        log_(
+            "warn",
+            String("Program run rejected: requested '") + message["programId"].as<String>() +
+                "', deployed '" + programId_ + "'.");
         return false;
     }
-    Serial.printf("Program run started: %s.\n", programId_.c_str());
+    log_("info", String("Program run started: ") + programId_ + ".");
     stopRequested_ = false; running_ = true; foreverIndex_ = 0;
     bool hasForeverEntrypoint = false;
     for (JsonObjectConst entry : package_["entrypoints"].as<JsonArrayConst>()) {
@@ -95,9 +100,9 @@ bool ProgramRuntime::control(const String& command, String& error) {
     // indicator instead of leaving the runtime permanently marked as running.
     if (running_ && !hasForeverEntrypoint) {
         safeStop();
-        Serial.printf("Program run completed: %s.\n", programId_.c_str());
+        log_("info", String("Program run completed: ") + programId_ + ".");
     } else if (running_) {
-        Serial.printf("Program run continuing in forever loop: %s.\n", programId_.c_str());
+        log_("info", String("Program run continuing in forever loop: ") + programId_ + ".");
     }
     status_(message["requestId"] | "", running_ ? "running" : "stopped", "");
     return true;
@@ -135,9 +140,9 @@ void ProgramRuntime::runOne(JsonObjectConst n) {
     else if (!strcmp(op,"prg_pause_seconds")) delay(constrain(number(input(n,"TIME"))*1000,0,60000));
     else if (!strcmp(op,"prg_stop")) stopRequested_=true;
     else if (!strcmp(op,"prg_reset_timer")) timers_[0]=millis();
-    else if (!strcmp(op,"rbt_set_status_light") || !strcmp(op,"robot_set_light")) { String c=n["fields"]["COLOUR"]|"#000000"; long rgb=strtol(c.c_str()+1,nullptr,16); Serial.printf("Program light command: set %s.\n",c.c_str()); light_(rgb>>16,(rgb>>8)&255,rgb&255); }
-    else if (!strcmp(op,"rbt_clear_status_light")) { Serial.println("Program light command: clear."); light_(0,0,0); }
-    else if (!strcmp(op,"rbt_blink_status_light")) { String c=n["fields"]["COLOUR"]|"#0000ff"; long rgb=strtol(c.c_str()+1,nullptr,16); int times=constrain(number(input(n,"TIMES")),0,50); Serial.printf("Program light command: blink %s %d time(s).\n",c.c_str(),times); for(int i=0;i<times;i++){light_(rgb>>16,(rgb>>8)&255,rgb&255);delay(150);light_(0,0,0);delay(150);} }
+    else if (!strcmp(op,"rbt_set_status_light") || !strcmp(op,"robot_set_light")) { String c=n["fields"]["COLOUR"]|"#000000"; long rgb=strtol(c.c_str()+1,nullptr,16); log_("info",String("Program light command: set ")+c+"."); light_(rgb>>16,(rgb>>8)&255,rgb&255); }
+    else if (!strcmp(op,"rbt_clear_status_light")) { log_("info","Program light command: clear."); light_(0,0,0); }
+    else if (!strcmp(op,"rbt_blink_status_light")) { String c=n["fields"]["COLOUR"]|"#0000ff"; long rgb=strtol(c.c_str()+1,nullptr,16); int times=constrain(number(input(n,"TIMES")),0,50); log_("info",String("Program light command: blink ")+c+" "+times+" time(s)."); for(int i=0;i<times;i++){light_(rgb>>16,(rgb>>8)&255,rgb&255);delay(150);light_(0,0,0);delay(150);} }
     else if (!strcmp(op,"mot_run")) { int i=motorIndex(n["fields"]["MOTOR"]); motorSpeed_[i]=clampSpeed(number(input(n,"SPEED"))); drive(motorSpeed_[0],motorSpeed_[1]); }
     else if (!strncmp(op,"mot_run_for_",12)) { int i=motorIndex(n["fields"]["MOTOR"]); motorSpeed_[i]=clampSpeed(number(input(n,"SPEED"))); drive(motorSpeed_[0],motorSpeed_[1]); delay(!strcmp(op,"mot_run_for_ms")?number(input(n,"TIME")):100); motorSpeed_[i]=0; drive(motorSpeed_[0],motorSpeed_[1]); }
     else if (!strcmp(op,"mot_stop" )||!strcmp(op,"mot_stop_mode")) { motorSpeed_[motorIndex(n["fields"]["MOTOR"])]=0; drive(motorSpeed_[0],motorSpeed_[1]); }

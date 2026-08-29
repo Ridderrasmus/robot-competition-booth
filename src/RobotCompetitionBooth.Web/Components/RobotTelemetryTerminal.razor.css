@@ -18,7 +18,9 @@
 
 .robot-terminal-header h2 {
     margin: 0;
-    font-size: 1.05rem;
+    overflow-wrap: anywhere;
+    font-family: var(--bs-font-monospace);
+    font-size: 0.95rem;
 }
 
 .terminal-eyebrow {
@@ -39,11 +41,11 @@
 }
 
 .robot-terminal-frame {
-    min-height: 19rem;
+    min-height: 21rem;
     padding: 0.75rem;
     border-top: 1px solid #1e293b;
 }
 
 .robot-terminal-frame ::deep .xterm {
-    min-height: 17.5rem;
+    min-height: 19.5rem;
 }

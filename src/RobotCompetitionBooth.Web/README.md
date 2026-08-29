@@ -21,7 +21,7 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Lets desktop users collapse the navigation sidebar to icon-only mode, with text tooltips for every navigation icon.
 - Opens a Blockly editor from each live device and saves multiple named workspaces for that device on the server.
 - Compiles the active Blockly workspace, deploys it over MQTT, and starts it on the robot without rebooting firmware.
-- Provides an admin-only read-only XtermBlazor terminal for the robot's USB serial output.
+- Provides admin-only, per-robot XtermBlazor terminals for bounded diagnostic logs reported over authenticated MQTT.
 - Provides an admin-only saved-program manager for downloading workspace JSON backups and removing stored files.
 - Provides an admin-only firmware flasher that discovers Windows COM ports, verifies PlatformIO CLI availability,
   and streams build/upload output while flashing the checked-in ESP32-S3 firmware.
@@ -99,13 +99,16 @@ To connect to the ESP32-S3:
    receives a separate generated identity, and **Change my name** replaces the generated display name for that browser.
 
 **Run on robot** saves and compiles the current workspace, deploys the instruction package through MQTT, and starts
-it without restarting the ESP32. Recent firmware serial output is retained in memory by the web server. From Admin,
-**Robot terminal** (`/admin/terminal`) displays that output, while **Saved programs** (`/admin/programs`) lists
-workspace files across all device IDs and allows an administrator to download or permanently remove them. The
-Blockly toolbox does not expose console or logging commands to robot programmers.
+it without restarting the ESP32. Firmware diagnostic messages use each authenticated robot's
+`telemetry/logs` MQTT topic and are retained in separate bounded in-memory buffers on the server. From Admin,
+**Robot terminal** (`/admin/terminal`) lists known robots and opens a terminal scoped to one device ID. USB serial
+output is not displayed in these terminals. **Saved programs** (`/admin/programs`) lists workspace files across all
+device IDs and allows an administrator to download or permanently remove them. The Blockly toolbox does not expose
+console or logging commands to robot programmers.
 
-The serial reader defaults to `COM5` at `115200` baud. Change `RobotSerial:PortName` and
-`RobotSerial:BaudRate`, or set `RobotSerial:Enabled` to `false`, when the server computer uses a different USB setup.
+The internal serial reader defaults to `COM5` at `115200` baud and is not exposed through the website. Change
+`RobotSerial:PortName` and `RobotSerial:BaudRate`, or set `RobotSerial:Enabled` to `false`, when the server computer
+uses a different USB setup.
 
 From Admin, **Firmware flashing** (`/admin/firmware`) lists COM ports currently reported by Windows. Flashing is
 disabled when the PlatformIO CLI or firmware project is unavailable. After confirmation, the server temporarily
@@ -163,14 +166,16 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Models/RobotSensorSnapshot.cs` mirrors the validated MQTT sensor-snapshot contract used by the programming UI.
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.
-- `Components/Pages/AdminTerminal.razor` gates the live robot terminal behind admin access.
+- `Components/Pages/AdminTerminal.razor` lists the per-robot terminals behind admin access.
+- `Components/Pages/AdminRobotTerminal.razor` hosts one admin-only robot diagnostic terminal.
 - `Components/Pages/AdminFirmware.razor` provides the admin-only COM-port selection and firmware-flashing UI.
-- `Components/RobotSerialTerminal.razor` renders recent USB serial output through XtermBlazor.
+- `Components/RobotTelemetryTerminal.razor` renders one robot's validated MQTT diagnostic log through XtermBlazor.
 - `Components/Pages/AdminPrograms.razor` manages saved workspace downloads and removal.
 - `Components/Admin/AdminGate.razor` renders the password gate used by every admin setup route.
 - `Services/AdminAccessService.cs` verifies the configured password and holds the current circuit's unlock state.
 - `Services/DeviceProgramStore.cs` validates, lists, and atomically saves named workspace JSON files per device.
-- `Services/RobotSerialTerminalService.cs` reconnects to the configured serial port and retains recent log lines.
+- `Services/RobotDiagnosticLogService.cs` keeps a separate bounded diagnostic-log buffer for every robot.
+- `Services/RobotSerialTerminalService.cs` internally monitors the configured serial port and releases it for flashing.
 - `Services/FirmwareFlashingService.cs` discovers COM ports and runs the fixed PlatformIO upload workflow.
 - `Services/RobotCollaborationService.cs` owns the process-wide live workspace and editor presence for each device.
 - `Properties/PublishProfiles/WindowsSingleFile.pubxml` defines the self-contained single-executable deployment.
