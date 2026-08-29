@@ -23,6 +23,8 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Compiles the active Blockly workspace, deploys it over MQTT, and starts it on the robot without rebooting firmware.
 - Provides an admin-only read-only XtermBlazor terminal for the robot's USB serial output.
 - Provides an admin-only saved-program manager for downloading workspace JSON backups and removing stored files.
+- Provides an admin-only firmware flasher that discovers Windows COM ports, verifies PlatformIO CLI availability,
+  and streams build/upload output while flashing the checked-in ESP32-S3 firmware.
 - Provides the complete MakeCode-inspired robot block catalog, with common hardware blocks first and raw GPIO/I2C
   configuration isolated in an Advanced category.
 - Shows the latest validated distance, colour/light, five-channel line, motor encoder, and servo values beside the
@@ -105,6 +107,14 @@ Blockly toolbox does not expose console or logging commands to robot programmers
 The serial reader defaults to `COM5` at `115200` baud. Change `RobotSerial:PortName` and
 `RobotSerial:BaudRate`, or set `RobotSerial:Enabled` to `false`, when the server computer uses a different USB setup.
 
+From Admin, **Firmware flashing** (`/admin/firmware`) lists COM ports currently reported by Windows. Flashing is
+disabled when the PlatformIO CLI or firmware project is unavailable. After confirmation, the server temporarily
+releases the selected port from USB serial logging, runs the configured PlatformIO environment, streams its output,
+and resumes serial logging when the upload succeeds, fails, times out, or is cancelled. Only one flash can run at a
+time. The default settings use the `pio` executable, environment `esp32-s3-n16r8`, and a ten-minute timeout; override
+them under `FirmwareFlashing` in configuration when necessary. Published builds include a copy of the firmware
+project beside the application, but PlatformIO and its toolchain must still be installed on the server computer.
+
 The connection is accepted only after the server finds the firmware's custom service, securely reads the status characteristic value `ready`, provisions Wi-Fi and MQTT, and reads back the `mqtt-connected` status.
 
 ## Embedded MQTT notes
@@ -154,12 +164,14 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.
 - `Components/Pages/AdminTerminal.razor` gates the live robot terminal behind admin access.
+- `Components/Pages/AdminFirmware.razor` provides the admin-only COM-port selection and firmware-flashing UI.
 - `Components/RobotSerialTerminal.razor` renders recent USB serial output through XtermBlazor.
 - `Components/Pages/AdminPrograms.razor` manages saved workspace downloads and removal.
 - `Components/Admin/AdminGate.razor` renders the password gate used by every admin setup route.
 - `Services/AdminAccessService.cs` verifies the configured password and holds the current circuit's unlock state.
 - `Services/DeviceProgramStore.cs` validates, lists, and atomically saves named workspace JSON files per device.
 - `Services/RobotSerialTerminalService.cs` reconnects to the configured serial port and retains recent log lines.
+- `Services/FirmwareFlashingService.cs` discovers COM ports and runs the fixed PlatformIO upload workflow.
 - `Services/RobotCollaborationService.cs` owns the process-wide live workspace and editor presence for each device.
 - `Properties/PublishProfiles/WindowsSingleFile.pubxml` defines the self-contained single-executable deployment.
 - `Models/BluetoothDeviceInfo.cs` contains the discovery result models.

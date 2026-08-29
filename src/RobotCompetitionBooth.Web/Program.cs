@@ -33,6 +33,8 @@ builder.Services.Configure<EmbeddedMqttOptions>(
     builder.Configuration.GetSection(EmbeddedMqttOptions.SectionName));
 builder.Services.Configure<RobotSerialOptions>(
     builder.Configuration.GetSection(RobotSerialOptions.SectionName));
+builder.Services.Configure<FirmwareFlashingOptions>(
+    builder.Configuration.GetSection(FirmwareFlashingOptions.SectionName));
 builder.Services.AddSingleton<BluetoothDiscoveryService>();
 builder.Services.AddSingleton<WifiCredentialStore>();
 builder.Services.AddSingleton<WifiNetworkScanner>();
@@ -49,6 +51,7 @@ builder.Services.AddSingleton<EmbeddedMqttBrokerService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<EmbeddedMqttBrokerService>());
 builder.Services.AddSingleton<RobotSerialTerminalService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<RobotSerialTerminalService>());
+builder.Services.AddSingleton<FirmwareFlashingService>();
 builder.Services.AddHostedService<BluetoothShutdownService>();
 
 var app = builder.Build();

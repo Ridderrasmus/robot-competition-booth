@@ -14,4 +14,13 @@
     <PackageReference Include="XtermBlazor" Version="2.4.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\RobotCompetitionBooth.Firmware\**\*"
+             Exclude="..\RobotCompetitionBooth.Firmware\.pio\**;..\RobotCompetitionBooth.Firmware\.vscode\**">
+      <Link>firmware\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

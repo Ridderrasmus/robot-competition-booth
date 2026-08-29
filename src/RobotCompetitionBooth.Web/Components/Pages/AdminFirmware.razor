@@ -1,0 +1,305 @@
+@page "/admin/firmware"
+@implements IDisposable
+@inject AdminAccessService AdminAccess
+@inject FirmwareFlashingService FirmwareFlashing
+
+<PageTitle>Firmware flashing</PageTitle>
+
+<AdminGate OnUnlocked="RefreshAsync">
+    <div class="admin-firmware-page">
+        <a class="back-link" href="/admin">← Back to admin</a>
+
+        <header class="admin-firmware-header">
+            <div>
+                <span class="admin-eyebrow">Microcontroller maintenance</span>
+                <h1 class="mb-1">Firmware flashing</h1>
+                <p class="text-secondary mb-0">
+                    Build and upload the checked-in Robobooth firmware through a COM port on this server.
+                </p>
+            </div>
+            <button class="btn btn-outline-secondary"
+                    type="button"
+                    disabled="@(loading || flashState.IsRunning)"
+                    @onclick="RefreshAsync">
+                Refresh
+            </button>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="alert @(messageIsError ? "alert-danger" : "alert-success")"
+                 role="@(messageIsError ? "alert" : "status")">
+                @message
+            </div>
+        }
+
+        <section class="firmware-card" aria-labelledby="platformio-heading">
+            <header class="firmware-card-header">
+                <div>
+                    <h2 id="platformio-heading">PlatformIO CLI</h2>
+                    <p>@(availability?.Message ?? "Checking PlatformIO on the server…")</p>
+                </div>
+                @if (loading && availability is null)
+                {
+                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <span class="badge @(availability?.IsAvailable is true ? "text-bg-success" : "text-bg-danger")">
+                        @(availability?.IsAvailable is true ? "Available" : "Unavailable")
+                    </span>
+                }
+            </header>
+
+            @if (!string.IsNullOrWhiteSpace(availability?.ProjectDirectory))
+            {
+                <dl class="firmware-details">
+                    <dt>Project</dt>
+                    <dd>@availability.ProjectDirectory</dd>
+                </dl>
+            }
+        </section>
+
+        <section class="firmware-card" aria-labelledby="port-heading">
+            <header class="firmware-card-header">
+                <div>
+                    <h2 id="port-heading">Upload device</h2>
+                    <p>Select a COM port currently reported by Windows.</p>
+                </div>
+                <span class="badge text-bg-secondary">@ports.Count port@(ports.Count == 1 ? string.Empty : "s")</span>
+            </header>
+
+            @if (loading && ports.Count == 0)
+            {
+                <div class="firmware-empty" role="status">
+                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                    Reading COM ports…
+                </div>
+            }
+            else if (ports.Count == 0)
+            {
+                <div class="firmware-empty">
+                    No COM devices are currently available. Connect a microcontroller and refresh this page.
+                </div>
+            }
+            else
+            {
+                <div class="firmware-port-control">
+                    <label class="form-label" for="firmware-port">COM port</label>
+                    <select id="firmware-port"
+                            class="form-select"
+                            disabled="@flashState.IsRunning"
+                            @bind="selectedPort"
+                            @bind:after="PortSelectionChanged">
+                        @foreach (var port in ports)
+                        {
+                            <option value="@port.PortName">
+                                @port.DisplayName@(port.IsRobotSerialPort ? " — configured robot serial" : string.Empty)
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                @if (confirmationRequested)
+                {
+                    <div class="firmware-confirm" role="group" aria-label="Confirm firmware flash">
+                        <div>
+                            <strong>Flash @selectedPort?</strong>
+                            <span>The device will reboot and its existing firmware will be replaced.</span>
+                        </div>
+                        <div>
+                            <button class="btn btn-danger"
+                                    type="button"
+                                    disabled="@(!CanFlash)"
+                                    @onclick="FlashAsync">
+                                Yes, flash firmware
+                            </button>
+                            <button class="btn btn-outline-secondary" type="button" @onclick="CancelConfirmation">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-primary"
+                            type="button"
+                            disabled="@(!CanFlash)"
+                            @onclick="RequestConfirmation">
+                        Flash firmware
+                    </button>
+                }
+            }
+        </section>
+
+        <section class="firmware-card" aria-labelledby="flash-output-heading">
+            <header class="firmware-card-header">
+                <div>
+                    <h2 id="flash-output-heading">Flash output</h2>
+                    <p>@flashState.Message</p>
+                </div>
+                @if (flashState.IsRunning)
+                {
+                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="CancelFlash">
+                        Cancel flash
+                    </button>
+                }
+                else if (flashState.Succeeded is not null)
+                {
+                    <span class="badge @(flashState.Succeeded is true ? "text-bg-success" : "text-bg-danger")">
+                        @(flashState.Succeeded is true ? "Succeeded" : "Failed")
+                    </span>
+                }
+            </header>
+
+            <div class="firmware-output" role="log" aria-live="polite">
+                @if (outputLines.Count == 0)
+                {
+                    <span class="firmware-output-empty">PlatformIO build and upload output will appear here.</span>
+                }
+                else
+                {
+                    @foreach (var line in outputLines)
+                    {
+                        <span class="@(line.IsError ? "firmware-output-error" : null)"><time>@line.ReceivedAt.ToString("HH:mm:ss")</time> @line.Text</span>
+                    }
+                }
+            </div>
+        </section>
+    </div>
+</AdminGate>
+
+@code {
+    private IReadOnlyList<FirmwareSerialPort> ports = [];
+    private readonly List<FirmwareFlashLine> outputLines = [];
+    private PlatformIoAvailability? availability;
+    private FirmwareFlashState flashState = new(false, null, "No firmware flash has been started.", null, null, null);
+    private string? selectedPort;
+    private string? message;
+    private bool messageIsError;
+    private bool confirmationRequested;
+    private bool loading;
+
+    private bool CanFlash =>
+        availability?.IsAvailable is true &&
+        !string.IsNullOrWhiteSpace(selectedPort) &&
+        !flashState.IsRunning &&
+        !loading;
+
+    protected override void OnInitialized()
+    {
+        flashState = FirmwareFlashing.State;
+        outputLines.AddRange(FirmwareFlashing.GetSnapshot());
+        FirmwareFlashing.LineReceived += HandleLineReceived;
+        FirmwareFlashing.StateChanged += HandleStateChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AdminAccess.IsUnlocked)
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        loading = true;
+        message = null;
+        confirmationRequested = false;
+        try
+        {
+            var availabilityTask = FirmwareFlashing.CheckAvailabilityAsync();
+            var portsTask = FirmwareFlashing.ListPortsAsync();
+            await Task.WhenAll(availabilityTask, portsTask);
+            availability = await availabilityTask;
+            ports = await portsTask;
+
+            if (selectedPort is null || !ports.Any(port => port.PortName == selectedPort))
+            {
+                selectedPort = ports.FirstOrDefault(port => port.IsRobotSerialPort)?.PortName
+                    ?? ports.FirstOrDefault()?.PortName;
+            }
+        }
+        catch (Exception exception)
+        {
+            message = $"Firmware tools could not be refreshed: {exception.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void RequestConfirmation()
+    {
+        message = null;
+        confirmationRequested = true;
+    }
+
+    private void CancelConfirmation() => confirmationRequested = false;
+
+    private void PortSelectionChanged()
+    {
+        confirmationRequested = false;
+        message = null;
+    }
+
+    private async Task FlashAsync()
+    {
+        if (!CanFlash || selectedPort is null)
+        {
+            return;
+        }
+
+        confirmationRequested = false;
+        message = null;
+        var result = await FirmwareFlashing.FlashAsync(selectedPort);
+        message = result.Message;
+        messageIsError = !result.Succeeded;
+        await RefreshPortsAfterFlashAsync();
+    }
+
+    private async Task RefreshPortsAfterFlashAsync()
+    {
+        try
+        {
+            ports = await FirmwareFlashing.ListPortsAsync();
+        }
+        catch
+        {
+            // The result of the completed flash remains visible even if Windows is still re-enumerating USB.
+        }
+    }
+
+    private void CancelFlash() => FirmwareFlashing.CancelCurrentFlash();
+
+    private void HandleLineReceived(object? sender, FirmwareFlashLine line) =>
+        _ = InvokeAsync(() =>
+        {
+            outputLines.Add(line);
+            if (outputLines.Count > 2000)
+            {
+                outputLines.RemoveAt(0);
+            }
+            StateHasChanged();
+        });
+
+    private void HandleStateChanged(object? sender, FirmwareFlashState updatedState) =>
+        _ = InvokeAsync(() =>
+        {
+            flashState = updatedState;
+            if (updatedState.IsRunning && updatedState.Message.StartsWith("Preparing", StringComparison.Ordinal))
+            {
+                outputLines.Clear();
+            }
+            StateHasChanged();
+        });
+
+    public void Dispose()
+    {
+        FirmwareFlashing.LineReceived -= HandleLineReceived;
+        FirmwareFlashing.StateChanged -= HandleStateChanged;
+    }
+}

@@ -1,0 +1,137 @@
+.admin-firmware-page {
+    display: grid;
+    gap: 1rem;
+    max-width: 68rem;
+}
+
+.admin-firmware-header,
+.firmware-card-header,
+.firmware-confirm,
+.firmware-confirm > div:last-child {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.admin-firmware-header {
+    margin-top: 0;
+}
+
+.firmware-card {
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.85rem;
+    background: var(--bs-body-bg);
+}
+
+.firmware-card-header {
+    align-items: center;
+    padding: 1rem;
+}
+
+.firmware-card-header h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.firmware-card-header p {
+    margin: 0.2rem 0 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.82rem;
+}
+
+.firmware-details {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.35rem 0.75rem;
+    margin: 0;
+    padding: 0 1rem 1rem;
+    font-size: 0.78rem;
+}
+
+.firmware-details dt {
+    color: var(--bs-secondary-color);
+}
+
+.firmware-details dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--bs-font-monospace);
+}
+
+.firmware-port-control {
+    padding: 0 1rem 1rem;
+}
+
+.firmware-card > .btn {
+    margin: 0 1rem 1rem;
+}
+
+.firmware-empty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 1rem 1rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.85rem;
+}
+
+.firmware-confirm {
+    align-items: center;
+    margin: 0 1rem 1rem;
+    padding: 0.85rem;
+    border: 1px solid rgba(var(--bs-danger-rgb), 0.35);
+    border-radius: 0.65rem;
+    background: rgba(var(--bs-danger-rgb), 0.06);
+}
+
+.firmware-confirm strong,
+.firmware-confirm strong + span {
+    display: block;
+}
+
+.firmware-confirm strong + span {
+    margin-top: 0.15rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.8rem;
+}
+
+.firmware-output {
+    display: flex;
+    flex-direction: column;
+    min-height: 17rem;
+    max-height: 32rem;
+    overflow: auto;
+    padding: 0.9rem 1rem;
+    border-top: 1px solid #1e293b;
+    color: #dbeafe;
+    background: #09111f;
+    font: 0.76rem/1.55 "Cascadia Mono", Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.firmware-output time {
+    color: #64748b;
+}
+
+.firmware-output-error {
+    color: #fda4af;
+}
+
+.firmware-output-empty {
+    color: #64748b;
+}
+
+@media (max-width: 700px) {
+    .admin-firmware-header,
+    .firmware-confirm {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .firmware-confirm > div:last-child {
+        flex-wrap: wrap;
+    }
+}
