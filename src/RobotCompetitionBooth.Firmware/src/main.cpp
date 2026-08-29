@@ -92,6 +92,15 @@ HardwareConfiguration hardwareConfiguration;
 ProgramRuntime* programRuntime = nullptr;
 uint32_t programStatusSequence = 0;
 
+struct PendingProgramStatus {
+    bool available = false;
+    char requestId[40]{};
+    char state[16]{};
+    char errorCode[32]{};
+};
+
+PendingProgramStatus pendingProgramStatus;
+
 void publishProgramStatus(const char* requestId, const char* state, const char* errorCode) {
     if (!mqttClient.connected()) return;
     char payload[768]{};
@@ -105,13 +114,28 @@ void publishProgramStatus(const char* requestId, const char* state, const char* 
     mqttClient.publish(programStatusTopic, payload, true, 1);
 }
 
+void queueProgramStatus(const char* requestId, const char* state, const char* errorCode) {
+    snprintf(pendingProgramStatus.requestId, sizeof(pendingProgramStatus.requestId), "%s", requestId == nullptr ? "" : requestId);
+    snprintf(pendingProgramStatus.state, sizeof(pendingProgramStatus.state), "%s", state == nullptr ? "" : state);
+    snprintf(pendingProgramStatus.errorCode, sizeof(pendingProgramStatus.errorCode), "%s", errorCode == nullptr ? "" : errorCode);
+    pendingProgramStatus.available = true;
+}
+
+void flushProgramStatus() {
+    if (!pendingProgramStatus.available || !mqttClient.connected()) return;
+    PendingProgramStatus status = pendingProgramStatus;
+    pendingProgramStatus.available = false;
+    publishProgramStatus(status.requestId, status.state, status.errorCode);
+}
+
 void receiveMqttMessage(String& topic, String& payload) {
     if (programRuntime == nullptr) return;
+    Serial.printf("Received %s (%u bytes).\n", topic.c_str(), static_cast<unsigned>(payload.length()));
     String error;
     bool accepted = false;
     if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
     else if (topic == programControlTopic) accepted = programRuntime->control(payload, error);
-    if (!accepted && !error.isEmpty()) publishProgramStatus("", "failed", error.c_str());
+    if (!accepted && !error.isEmpty()) queueProgramStatus("", "failed", error.c_str());
 }
 
 void setProvisioningStatus(const char* status) {
@@ -648,6 +672,7 @@ void updateNetworkConnections() {
     }
 
     mqttClient.loop();
+    flushProgramStatus();
     tryConnectMqtt();
     publishColor();
     publishSyntheticSensorSnapshot();
@@ -679,7 +704,7 @@ void setup() {
     snprintf(programStatusTopic, sizeof(programStatusTopic), "robobooth/v1/devices/%s/program/status", deviceId);
     programRuntime = new ProgramRuntime(
         hardwareConfiguration,
-        [](const char* requestId, const char* state, const char* error) { publishProgramStatus(requestId, state, error); },
+        [](const char* requestId, const char* state, const char* error) { queueProgramStatus(requestId, state, error); },
         [](uint8_t red, uint8_t green, uint8_t blue) {
             currentColor = {red, green, blue};
             showStatus(red, green, blue);
