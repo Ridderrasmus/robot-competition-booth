@@ -17,6 +17,7 @@ public sealed class EmbeddedMqttBrokerService(
     ILogger<EmbeddedMqttBrokerService> logger) : BackgroundService
 {
     private const string TopicPrefix = "robobooth/v1/devices/";
+    private const string HostClientId = "robobooth-host";
     private const string ColorTopicSuffix = "/state/color";
     private const string SensorSnapshotTopicSuffix = "/telemetry/sensors";
     private const string StatusTopicSuffix = "/status";
@@ -99,7 +100,8 @@ public sealed class EmbeddedMqttBrokerService(
 
     private Task ValidateConnectionAsync(ValidatingConnectionEventArgs args)
     {
-        var validClientId = TryValidateDeviceId(args.ClientId);
+        var validClientId = string.Equals(args.ClientId, HostClientId, StringComparison.Ordinal) ||
+            TryValidateDeviceId(args.ClientId);
         var authenticated = accessService.Validate(args.UserName, args.RawPassword);
         if (!validClientId || !authenticated)
         {
@@ -115,6 +117,12 @@ public sealed class EmbeddedMqttBrokerService(
 
     private Task ClientConnectedAsync(ClientConnectedEventArgs args)
     {
+        if (string.Equals(args.ClientId, HostClientId, StringComparison.Ordinal))
+        {
+            logger.LogDebug("Local Robobooth command client connected");
+            return Task.CompletedTask;
+        }
+
         deviceState.SetConnectionState(args.ClientId, true);
         logger.LogInformation("Robobooth MQTT client connected: {ClientId}", args.ClientId);
         return Task.CompletedTask;
@@ -122,6 +130,12 @@ public sealed class EmbeddedMqttBrokerService(
 
     private Task ClientDisconnectedAsync(ClientDisconnectedEventArgs args)
     {
+        if (string.Equals(args.ClientId, HostClientId, StringComparison.Ordinal))
+        {
+            logger.LogDebug("Local Robobooth command client disconnected");
+            return Task.CompletedTask;
+        }
+
         deviceState.SetConnectionState(args.ClientId, false);
         logger.LogInformation(
             "Robobooth MQTT client disconnected: {ClientId}; type={DisconnectType}, reason={ReasonCode}, detail={ReasonString}",
@@ -136,7 +150,7 @@ public sealed class EmbeddedMqttBrokerService(
     {
         // Host-injected deploy/control messages are outbound commands, not robot publications.
         if (string.IsNullOrEmpty(args.ClientId) ||
-            string.Equals(args.ClientId, "robobooth-host", StringComparison.Ordinal))
+            string.Equals(args.ClientId, HostClientId, StringComparison.Ordinal))
         {
             return Task.CompletedTask;
         }

@@ -40,7 +40,6 @@ constexpr unsigned long MqttReconnectIntervalMs = 3000;
 constexpr unsigned long ColorPublishIntervalMs = 1000;
 constexpr unsigned long SensorPublishIntervalMs = 200;
 constexpr unsigned long SensorPublishErrorLogIntervalMs = 5000;
-constexpr unsigned long LedAnimationPeriodMs = 18000;
 constexpr unsigned long LedRefreshIntervalMs = 30;
 constexpr uint8_t LedBrightness = 28;
 
@@ -81,6 +80,7 @@ bool wifiWasConnected = false;
 bool initialWifiConnection = false;
 bool mqttFailureReported = false;
 bool mqttWasConnected = false;
+volatile bool bleAuthenticated = false;
 unsigned long wifiConnectionStartedAt = 0;
 unsigned long mqttConnectionStartedAt = 0;
 unsigned long lastMqttConnectAttemptAt = 0;
@@ -157,40 +157,14 @@ bool isAsciiHex(uint8_t character) {
         (character >= 'A' && character <= 'F');
 }
 
-RgbColor colorForTime(unsigned long now) {
-    const uint32_t wheelPosition =
-        (static_cast<uint64_t>(now % LedAnimationPeriodMs) * 768) / LedAnimationPeriodMs;
-
-    if (wheelPosition < 256) {
-        return {
-            static_cast<uint8_t>(255 - wheelPosition),
-            static_cast<uint8_t>(wheelPosition),
-            0};
-    }
-
-    if (wheelPosition < 512) {
-        const uint16_t offset = wheelPosition - 256;
-        return {
-            0,
-            static_cast<uint8_t>(255 - offset),
-            static_cast<uint8_t>(offset)};
-    }
-
-    const uint16_t offset = wheelPosition - 512;
-    return {
-        static_cast<uint8_t>(offset),
-        0,
-        static_cast<uint8_t>(255 - offset)};
-}
-
-void updateLedAnimation() {
+void updateIdleStatusLight() {
     const unsigned long now = millis();
     if (now - lastLedRefreshAt < LedRefreshIntervalMs) {
         return;
     }
 
     lastLedRefreshAt = now;
-    currentColor = colorForTime(now);
+    currentColor = bleAuthenticated ? RgbColor{0, 255, 0} : RgbColor{255, 0, 0};
     showStatus(
         static_cast<uint8_t>((static_cast<uint16_t>(currentColor.red) * LedBrightness) / 255),
         static_cast<uint8_t>((static_cast<uint16_t>(currentColor.green) * LedBrightness) / 255),
@@ -199,6 +173,7 @@ void updateLedAnimation() {
 
 class ServerCallbacks final : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* server, NimBLEConnInfo& connection) override {
+        bleAuthenticated = false;
         Serial.printf(
             "BLE client connected: %s\n",
             connection.getAddress().toString().c_str());
@@ -215,6 +190,7 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
         NimBLEServer*,
         NimBLEConnInfo& connection,
         int reason) override {
+        bleAuthenticated = false;
         Serial.printf(
             "BLE client disconnected: %s (reason %d)\n",
             connection.getAddress().toString().c_str(),
@@ -228,10 +204,13 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
 
     void onAuthenticationComplete(NimBLEConnInfo& connection) override {
         if (!connection.isEncrypted() || !connection.isAuthenticated()) {
+            bleAuthenticated = false;
             Serial.println("BLE authentication failed; disconnecting client.");
             NimBLEDevice::getServer()->disconnect(connection.getConnHandle());
             return;
         }
+
+        bleAuthenticated = true;
 
         Serial.printf(
             "BLE pairing succeeded: %s\n",
@@ -712,7 +691,7 @@ void updateNetworkConnections() {
 } // namespace
 
 void setup() {
-    showStatus(24, 8, 0);
+    showStatus(LedBrightness, 0, 0);
 
     Serial.begin(115200);
     delay(500);
@@ -741,14 +720,6 @@ void setup() {
             showStatus(red, green, blue);
         });
     mqttClient.onMessage(receiveMqttMessage);
-
-    // Provisioning values are kept only in RAM. The server computer owns their
-    // DPAPI-protected persistence and sends them again after every board restart.
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
-    WiFi.setAutoReconnect(true);
-    WiFi.disconnect(false, true);
 
     provisioningQueue = xQueueCreate(1, sizeof(ProvisioningMessage));
     if (provisioningQueue == nullptr) {
@@ -810,12 +781,24 @@ void setup() {
         ESP.restart();
     }
 
+    // Bring up Bluetooth before the Wi-Fi radio. On the ESP32-S3 this avoids a
+    // coexistence-controller abort that can occur when an already-started Wi-Fi
+    // station is followed immediately by BLE controller initialization.
+    // Provisioning values are kept only in RAM. The server computer owns their
+    // DPAPI-protected persistence and sends them again after every board restart.
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    // ESP32-S3 radio coexistence requires modem sleep while BLE is active.
+    WiFi.setSleep(true);
+    WiFi.setAutoReconnect(true);
+    WiFi.disconnect(false, true);
+
     Serial.printf("Advertising as %s (%s)\n", DeviceName, deviceId);
     Serial.printf("Pair using passkey %06lu\n", static_cast<unsigned long>(PairingPasskey));
 }
 
 void loop() {
-    if (programRuntime == nullptr || !programRuntime->running()) updateLedAnimation();
+    if (programRuntime == nullptr || !programRuntime->running()) updateIdleStatusLight();
     if (programRuntime != nullptr) programRuntime->tick();
     startPendingProvisioning();
     updateNetworkConnections();

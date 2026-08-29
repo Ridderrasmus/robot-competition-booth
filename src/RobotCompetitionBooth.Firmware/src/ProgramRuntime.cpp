@@ -52,7 +52,16 @@ bool ProgramRuntime::control(const String& command, String& error) {
     if (!strcmp(action, "stop")) { stopRequested_ = true; safeStop(); status_(message["requestId"] | "", "stopped", ""); return true; }
     if (strcmp(action, "run") || programId_.isEmpty() || message["programId"].as<String>() != programId_) { error = "program-not-found"; return false; }
     stopRequested_ = false; running_ = true; foreverIndex_ = 0;
-    for (JsonObjectConst entry : package_["entrypoints"].as<JsonArrayConst>()) if (!strcmp(entry["kind"] | "", "onStart")) runStack(entry["root"]);
+    bool hasForeverEntrypoint = false;
+    for (JsonObjectConst entry : package_["entrypoints"].as<JsonArrayConst>()) {
+        const char* kind = entry["kind"] | "";
+        if (!strcmp(kind, "onStart")) runStack(entry["root"]);
+        else if (!strcmp(kind, "forever")) hasForeverEntrypoint = true;
+    }
+    // A program made only of on-start commands is complete once that stack
+    // returns. This releases the status light back to its idle connection
+    // indicator instead of leaving the runtime permanently marked as running.
+    if (running_ && !hasForeverEntrypoint) safeStop();
     status_(message["requestId"] | "", running_ ? "running" : "stopped", "");
     return true;
 }
