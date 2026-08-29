@@ -31,6 +31,8 @@ builder.Services.AddRazorComponents()
         options.MaximumReceiveMessageSize = DeviceProgramStore.MaximumWorkspaceFileLength + (64 * 1024));
 builder.Services.Configure<EmbeddedMqttOptions>(
     builder.Configuration.GetSection(EmbeddedMqttOptions.SectionName));
+builder.Services.Configure<RobotSerialOptions>(
+    builder.Configuration.GetSection(RobotSerialOptions.SectionName));
 builder.Services.AddSingleton<BluetoothDiscoveryService>();
 builder.Services.AddSingleton<WifiCredentialStore>();
 builder.Services.AddSingleton<WifiNetworkScanner>();
@@ -45,6 +47,8 @@ builder.Services.AddScoped<AdminAccessService>();
 builder.Services.AddSingleton<BluetoothConnectionManager>();
 builder.Services.AddSingleton<EmbeddedMqttBrokerService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<EmbeddedMqttBrokerService>());
+builder.Services.AddSingleton<RobotSerialTerminalService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<RobotSerialTerminalService>());
 builder.Services.AddHostedService<BluetoothShutdownService>();
 
 var app = builder.Build();

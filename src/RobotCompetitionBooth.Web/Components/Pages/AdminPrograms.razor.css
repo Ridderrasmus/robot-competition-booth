@@ -1,0 +1,108 @@
+.admin-programs-page {
+    max-width: 68rem;
+}
+
+.admin-programs-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1rem 0 1.5rem;
+}
+
+.admin-program-groups {
+    display: grid;
+    gap: 1rem;
+}
+
+.admin-program-group,
+.admin-programs-empty {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.85rem;
+    background: var(--bs-body-bg);
+}
+
+.admin-program-group > header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.admin-program-group h2 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--bs-font-monospace);
+    font-size: 0.9rem;
+}
+
+.admin-program-list {
+    display: grid;
+}
+
+.admin-program-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+}
+
+.admin-program-row + .admin-program-row {
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.admin-program-details,
+.admin-program-details > span {
+    display: block;
+}
+
+.admin-program-details > span {
+    margin-top: 0.15rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.8rem;
+}
+
+.admin-program-actions,
+.admin-program-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: none;
+}
+
+.admin-program-confirm > span {
+    color: var(--bs-danger);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.admin-programs-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    min-height: 10rem;
+    padding: 2rem;
+    color: var(--bs-secondary-color);
+    text-align: center;
+}
+
+.admin-programs-empty strong,
+.admin-programs-empty strong + span {
+    display: block;
+}
+
+@media (max-width: 700px) {
+    .admin-programs-header,
+    .admin-program-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .admin-program-actions,
+    .admin-program-confirm {
+        flex-wrap: wrap;
+    }
+}

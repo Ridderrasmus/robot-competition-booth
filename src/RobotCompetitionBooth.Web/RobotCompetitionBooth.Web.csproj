@@ -10,6 +10,8 @@
   <ItemGroup>
     <PackageReference Include="MQTTnet.Server" Version="5.2.0.1603" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
+    <PackageReference Include="XtermBlazor" Version="2.4.0" />
   </ItemGroup>
 
 </Project>

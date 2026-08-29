@@ -1,0 +1,49 @@
+.robot-terminal {
+    margin-top: 1.25rem;
+    overflow: hidden;
+    border: 1px solid #1e293b;
+    border-radius: 0.9rem;
+    background: #09111f;
+    box-shadow: 0 0.9rem 2.25rem rgba(15, 23, 42, 0.16);
+}
+
+.robot-terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem 0.35rem;
+    color: #f8fafc;
+}
+
+.robot-terminal-header h2 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.terminal-eyebrow {
+    display: block;
+    margin-bottom: 0.15rem;
+    color: #60a5fa;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.robot-terminal-status {
+    margin: 0;
+    padding: 0 1rem 0.7rem;
+    color: #94a3b8;
+    font-size: 0.78rem;
+}
+
+.robot-terminal-frame {
+    min-height: 19rem;
+    padding: 0.75rem;
+    border-top: 1px solid #1e293b;
+}
+
+.robot-terminal-frame ::deep .xterm {
+    min-height: 17.5rem;
+}

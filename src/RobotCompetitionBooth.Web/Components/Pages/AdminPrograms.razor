@@ -1,0 +1,262 @@
+@page "/admin/programs"
+@implements IAsyncDisposable
+@inject AdminAccessService AdminAccess
+@inject DeviceProgramStore ProgramStore
+@inject IJSRuntime JavaScript
+
+<PageTitle>Saved programs</PageTitle>
+
+<AdminGate OnUnlocked="RefreshAsync">
+    <div class="admin-programs-page">
+        <a class="back-link" href="/admin">← Back to admin</a>
+
+        <header class="admin-programs-header">
+            <div>
+                <span class="admin-eyebrow">Workspace storage</span>
+                <h1 class="mb-1">Saved programs</h1>
+                <p class="text-secondary mb-0">
+                    Download a workspace backup or permanently remove a saved program from this server.
+                </p>
+            </div>
+            <button class="btn btn-outline-secondary"
+                    type="button"
+                    disabled="@operationInProgress"
+                    @onclick="RefreshAsync">
+                Refresh
+            </button>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="alert @(messageIsError ? "alert-danger" : "alert-success")"
+                 role="@(messageIsError ? "alert" : "status")">
+                @message
+            </div>
+        }
+
+        @if (loading)
+        {
+            <div class="admin-programs-empty" role="status">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                Loading saved programs…
+            </div>
+        }
+        else if (programs.Count == 0)
+        {
+            <div class="admin-programs-empty">
+                <strong>No saved programs</strong>
+                <span>Workspace files will appear here after they are saved from a robot programming page.</span>
+            </div>
+        }
+        else
+        {
+            <div class="admin-program-groups">
+                @foreach (var deviceGroup in programs.GroupBy(program => program.DeviceId))
+                {
+                    <section class="admin-program-group" aria-labelledby="@GetHeadingId(deviceGroup.Key)">
+                        <header>
+                            <h2 id="@GetHeadingId(deviceGroup.Key)">@deviceGroup.Key</h2>
+                            <span class="badge text-bg-secondary">@deviceGroup.Count()</span>
+                        </header>
+
+                        <div class="admin-program-list">
+                            @foreach (var program in deviceGroup)
+                            {
+                                var key = GetProgramKey(program);
+                                <article class="admin-program-row">
+                                    <div class="admin-program-details">
+                                        <strong>@program.Name<span class="text-secondary">.json</span></strong>
+                                        <span>
+                                            Saved @FormatSavedAt(program.LastSavedAt) · @FormatFileSize(program.FileSize)
+                                        </span>
+                                    </div>
+
+                                    @if (pendingDeleteKey == key)
+                                    {
+                                        <div class="admin-program-confirm" role="group" aria-label="Confirm program removal">
+                                            <span>Remove permanently?</span>
+                                            <button class="btn btn-sm btn-danger"
+                                                    type="button"
+                                                    disabled="@operationInProgress"
+                                                    @onclick="() => DeleteAsync(program)">
+                                                Yes, remove
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    type="button"
+                                                    disabled="@operationInProgress"
+                                                    @onclick="CancelDelete">
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="admin-program-actions">
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    type="button"
+                                                    disabled="@operationInProgress"
+                                                    @onclick="() => DownloadAsync(program)">
+                                                Download
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    type="button"
+                                                    disabled="@operationInProgress"
+                                                    @onclick="() => RequestDelete(program)">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    }
+                                </article>
+                            }
+                        </div>
+                    </section>
+                }
+            </div>
+        }
+    </div>
+</AdminGate>
+
+@code {
+    private IReadOnlyList<SavedDeviceProgramInfo> programs = [];
+    private IJSObjectReference? downloadModule;
+    private string? pendingDeleteKey;
+    private string? message;
+    private bool messageIsError;
+    private bool loading;
+    private bool operationInProgress;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AdminAccess.IsUnlocked)
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        loading = true;
+        message = null;
+        pendingDeleteKey = null;
+        try
+        {
+            programs = await ProgramStore.ListAllAsync();
+        }
+        catch (Exception exception)
+        {
+            message = $"Saved programs could not be read: {exception.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task DownloadAsync(SavedDeviceProgramInfo program)
+    {
+        operationInProgress = true;
+        message = null;
+        try
+        {
+            var saved = await ProgramStore.LoadAsync(program.DeviceId, program.Name);
+            if (saved is null)
+            {
+                message = $"{program.Name}.json no longer exists.";
+                messageIsError = true;
+                await RefreshAsync();
+                return;
+            }
+
+            downloadModule ??= await JavaScript.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/fileDownloads.js");
+            await downloadModule.InvokeVoidAsync(
+                "downloadTextFile",
+                $"{program.DeviceId}-{saved.Name}.json",
+                saved.WorkspaceJson);
+            message = $"Downloaded {saved.Name}.json.";
+            messageIsError = false;
+        }
+        catch (Exception exception)
+        {
+            message = $"The program could not be downloaded: {exception.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private void RequestDelete(SavedDeviceProgramInfo program)
+    {
+        pendingDeleteKey = GetProgramKey(program);
+        message = null;
+    }
+
+    private void CancelDelete() => pendingDeleteKey = null;
+
+    private async Task DeleteAsync(SavedDeviceProgramInfo program)
+    {
+        operationInProgress = true;
+        message = null;
+        try
+        {
+            var deleted = await ProgramStore.DeleteAsync(program.DeviceId, program.Name);
+            message = deleted
+                ? $"Removed {program.Name}.json from {program.DeviceId}."
+                : $"{program.Name}.json had already been removed.";
+            messageIsError = false;
+            pendingDeleteKey = null;
+            programs = await ProgramStore.ListAllAsync();
+        }
+        catch (Exception exception)
+        {
+            message = $"The program could not be removed: {exception.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private static string GetProgramKey(SavedDeviceProgramInfo program) =>
+        $"{program.DeviceId}\n{program.Name}";
+
+    private static string GetHeadingId(string deviceId) => $"programs-{deviceId}";
+
+    private static string FormatSavedAt(DateTimeOffset savedAt) =>
+        savedAt.ToLocalTime().ToString("g");
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return $"{bytes} B";
+        }
+
+        if (bytes < 1024 * 1024)
+        {
+            return $"{bytes / 1024d:0.#} KB";
+        }
+
+        return $"{bytes / (1024d * 1024d):0.#} MB";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (downloadModule is not null)
+        {
+            try
+            {
+                await downloadModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The browser circuit has already closed.
+            }
+        }
+    }
+}

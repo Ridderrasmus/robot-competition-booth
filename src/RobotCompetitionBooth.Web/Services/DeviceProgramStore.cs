@@ -24,6 +24,69 @@ public sealed class DeviceProgramStore
         "RobotCompetitionBooth",
         "device-programs");
 
+    public async Task<IReadOnlyList<SavedDeviceProgramInfo>> ListAllAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await storageLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!Directory.Exists(storageRootPath))
+            {
+                return [];
+            }
+
+            var savedPrograms = new List<SavedDeviceProgramInfo>();
+            foreach (var deviceDirectoryPath in Directory.EnumerateDirectories(
+                         storageRootPath,
+                         "robotbooth-*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                var deviceId = Path.GetFileName(deviceDirectoryPath);
+                try
+                {
+                    ValidateDeviceId(deviceId);
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+
+                foreach (var workspaceFilePath in Directory.EnumerateFiles(
+                             deviceDirectoryPath,
+                             "*.json",
+                             SearchOption.TopDirectoryOnly))
+                {
+                    var file = new FileInfo(workspaceFilePath);
+                    var workspaceName = Path.GetFileNameWithoutExtension(file.Name);
+                    try
+                    {
+                        workspaceName = NormalizeWorkspaceName(workspaceName);
+                    }
+                    catch (ArgumentException)
+                    {
+                        continue;
+                    }
+
+                    savedPrograms.Add(new(
+                        deviceId,
+                        workspaceName,
+                        new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero),
+                        file.Length));
+                }
+            }
+
+            return savedPrograms
+                .OrderBy(program => program.DeviceId, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(program => program.LastSavedAt)
+                .ThenBy(program => program.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        finally
+        {
+            storageLock.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<SavedDeviceWorkspaceInfo>> ListAsync(
         string deviceId,
         CancellationToken cancellationToken = default)
@@ -140,6 +203,38 @@ public sealed class DeviceProgramStore
         }
     }
 
+    public async Task<bool> DeleteAsync(
+        string deviceId,
+        string workspaceName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = NormalizeWorkspaceName(workspaceName);
+        var workspaceFilePath = GetWorkspaceFilePath(deviceId, normalizedName);
+        var deviceDirectoryPath = Path.GetDirectoryName(workspaceFilePath)!;
+
+        await storageLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!File.Exists(workspaceFilePath))
+            {
+                return false;
+            }
+
+            File.Delete(workspaceFilePath);
+            if (Directory.Exists(deviceDirectoryPath) &&
+                !Directory.EnumerateFileSystemEntries(deviceDirectoryPath).Any())
+            {
+                Directory.Delete(deviceDirectoryPath);
+            }
+
+            return true;
+        }
+        finally
+        {
+            storageLock.Release();
+        }
+    }
+
     private string GetWorkspaceFilePath(string deviceId, string normalizedWorkspaceName) =>
         Path.Combine(GetDeviceDirectoryPath(deviceId), $"{normalizedWorkspaceName}.json");
 
@@ -233,3 +328,9 @@ public sealed record SavedDeviceWorkspace(
     string Name,
     string WorkspaceJson,
     DateTimeOffset LastSavedAt);
+
+public sealed record SavedDeviceProgramInfo(
+    string DeviceId,
+    string Name,
+    DateTimeOffset LastSavedAt,
+    long FileSize);
