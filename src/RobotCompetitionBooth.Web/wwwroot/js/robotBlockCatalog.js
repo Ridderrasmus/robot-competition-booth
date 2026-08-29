@@ -165,13 +165,16 @@ cmd("COM-008", "com_wait_dashboard", "communication", "Phase 2", "wait until das
 cmd("COM-009", "com_send_sensor_snapshot", "communication", "Phase 2", "send sensor snapshot");
 cmd("COM-010", "com_send_motor_snapshot", "communication", "Phase 2", "send motor snapshot");
 
-cmd("CON-001", "con_log", "console", "MVP", "log %1", [T("TEXT", "message")]);
-cmd("CON-002", "con_log_value", "console", "MVP", "log value %1 = %2", [T("NAME", "value"), A("VALUE")]);
-cmd("CON-003", "con_clear", "console", "Phase 2", "clear console");
-cmd("CON-004", "con_show_number", "console", "Phase 2", "show number %1", [N("VALUE", 0)]);
-cmd("CON-005", "con_show_string", "console", "Phase 2", "show string %1", [T("TEXT", "text")]);
-cmd("CON-006", "con_show_sensors", "console", "Phase 2", "show sensor values");
-cmd("CON-007", "con_show_motors", "console", "Phase 2", "show motor values");
+// Keep the old console block definitions registered so historical workspaces can
+// still be opened and edited. They are intentionally absent from the toolbox,
+// and the server compiler rejects them if an old workspace is deployed.
+cmd("CON-001", "con_log", "console", "Legacy", "log %1", [T("TEXT", "message")]);
+cmd("CON-002", "con_log_value", "console", "Legacy", "log value %1 = %2", [T("NAME", "value"), A("VALUE")]);
+cmd("CON-003", "con_clear", "console", "Legacy", "clear console");
+cmd("CON-004", "con_show_number", "console", "Legacy", "show number %1", [N("VALUE", 0)]);
+cmd("CON-005", "con_show_string", "console", "Legacy", "show string %1", [T("TEXT", "text")]);
+cmd("CON-006", "con_show_sensors", "console", "Legacy", "show sensor values");
+cmd("CON-007", "con_show_motors", "console", "Legacy", "show motor values");
 
 rep("MAT-006", "mat_map", "math-extra", "MVP", "map %1 from %2 - %3 to %4 - %5", [N("VALUE", 0), N("IN_MIN", 0), N("IN_MAX", 100), N("OUT_MIN", 0), N("OUT_MAX", 1)]);
 rep("MAT-007", "mat_constrain", "math-extra", "MVP", "constrain %1 between %2 and %3", [N("VALUE", 0), N("MIN", 0), N("MAX", 100)]);
@@ -274,7 +277,6 @@ export function createRobotToolbox() {
             { kind: "category", name: "Colour & light", colour: colours.colour, contents: regular("colour") },
             { kind: "category", name: "Line tracking", colour: colours.line, contents: regular("line") },
             { kind: "category", name: "Dashboard", colour: colours.communication, contents: regular("communication") },
-            { kind: "category", name: "Console", colour: colours.console, contents: regular("console") },
             { kind: "category", name: "Logic", categorystyle: "logic_category", contents: [
                 { kind: "block", type: "controls_if" }, { kind: "block", type: "logic_compare" },
                 { kind: "block", type: "logic_operation" }, { kind: "block", type: "logic_negate" },

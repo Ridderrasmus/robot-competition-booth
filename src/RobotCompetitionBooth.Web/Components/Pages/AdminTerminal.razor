@@ -1,0 +1,19 @@
+@page "/admin/terminal"
+
+<PageTitle>Robot terminal</PageTitle>
+
+<AdminGate>
+    <div class="admin-terminal-page">
+        <a class="back-link" href="/admin">← Back to admin</a>
+
+        <header class="admin-terminal-heading">
+            <span class="admin-eyebrow">Robot diagnostics</span>
+            <h1 class="mb-1">Live serial output</h1>
+            <p class="text-secondary mb-0">
+                Read-only output from the robot's USB serial connection. This log is available only after admin unlock.
+            </p>
+        </header>
+
+        <RobotSerialTerminal />
+    </div>
+</AdminGate>

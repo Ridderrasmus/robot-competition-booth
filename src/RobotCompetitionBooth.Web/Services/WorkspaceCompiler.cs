@@ -58,6 +58,8 @@ public sealed partial class WorkspaceCompiler
         if (depth > 128 || ++blockCount > MaximumBlocks) throw new InvalidDataException("The workspace exceeds the program size limits.");
         var opcode = block["type"]?.GetValue<string>();
         if (opcode is null || !OpcodeRegex().IsMatch(opcode)) throw new InvalidDataException($"Invalid block type: {opcode}.");
+        if (opcode.StartsWith("con_", StringComparison.Ordinal))
+            throw new InvalidDataException("Console blocks are not available in robot programs.");
         var id = block["id"]?.GetValue<string>() ?? $"generated-{++generatedId}";
         if (!ids.Add(id)) throw new InvalidDataException($"Duplicate block id: {id}.");
         var result = new JsonObject { ["id"] = id, ["opcode"] = opcode };

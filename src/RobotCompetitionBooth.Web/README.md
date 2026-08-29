@@ -21,7 +21,7 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Lets desktop users collapse the navigation sidebar to icon-only mode, with text tooltips for every navigation icon.
 - Opens a Blockly editor from each live device and saves multiple named workspaces for that device on the server.
 - Compiles the active Blockly workspace, deploys it over MQTT, and starts it on the robot without rebooting firmware.
-- Mirrors the robot's USB serial output into a read-only XtermBlazor terminal beneath the programming workspace.
+- Provides an admin-only read-only XtermBlazor terminal for the robot's USB serial output.
 - Provides an admin-only saved-program manager for downloading workspace JSON backups and removing stored files.
 - Provides the complete MakeCode-inspired robot block catalog, with common hardware blocks first and raw GPIO/I2C
   configuration isolated in an Advanced category.
@@ -97,9 +97,10 @@ To connect to the ESP32-S3:
    receives a separate generated identity, and **Change my name** replaces the generated display name for that browser.
 
 **Run on robot** saves and compiles the current workspace, deploys the instruction package through MQTT, and starts
-it without restarting the ESP32. Recent firmware serial output is retained in memory by the web server and displayed
-in the read-only robot terminal. From Admin, **Saved programs** (`/admin/programs`) lists workspace files across all
-device IDs and allows an administrator to download or permanently remove them.
+it without restarting the ESP32. Recent firmware serial output is retained in memory by the web server. From Admin,
+**Robot terminal** (`/admin/terminal`) displays that output, while **Saved programs** (`/admin/programs`) lists
+workspace files across all device IDs and allows an administrator to download or permanently remove them. The
+Blockly toolbox does not expose console or logging commands to robot programmers.
 
 The serial reader defaults to `COM5` at `115200` baud. Change `RobotSerial:PortName` and
 `RobotSerial:BaudRate`, or set `RobotSerial:Enabled` to `false`, when the server computer uses a different USB setup.
@@ -152,6 +153,7 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Models/RobotSensorSnapshot.cs` mirrors the validated MQTT sensor-snapshot contract used by the programming UI.
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.
+- `Components/Pages/AdminTerminal.razor` gates the live robot terminal behind admin access.
 - `Components/RobotSerialTerminal.razor` renders recent USB serial output through XtermBlazor.
 - `Components/Pages/AdminPrograms.razor` manages saved workspace downloads and removal.
 - `Components/Admin/AdminGate.razor` renders the password gate used by every admin setup route.

@@ -10,7 +10,7 @@
             <div>
                 <span class="admin-eyebrow">Protected settings</span>
                 <h1 class="mb-1">Admin</h1>
-                <p class="text-secondary mb-0">Manage the server-side network and robot connection setup.</p>
+                <p class="text-secondary mb-0">Manage server-side setup, saved programs, and robot diagnostics.</p>
             </div>
             <button class="btn btn-outline-secondary" type="button" @onclick="LockAdmin">
                 Lock admin
@@ -41,6 +41,15 @@
                 <span>
                     <strong>Saved programs</strong>
                     <span>Download workspace backups or remove programs stored on this server.</span>
+                </span>
+                <span class="admin-setting-arrow" aria-hidden="true">→</span>
+            </a>
+
+            <a class="admin-setting-card" href="/admin/terminal">
+                <span class="admin-setting-icon terminal-icon" aria-hidden="true"></span>
+                <span>
+                    <strong>Robot terminal</strong>
+                    <span>View the live USB serial log from the connected robot.</span>
                 </span>
                 <span class="admin-setting-arrow" aria-hidden="true">→</span>
             </a>
