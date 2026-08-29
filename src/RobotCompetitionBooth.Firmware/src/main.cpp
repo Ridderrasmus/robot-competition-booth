@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include "ProgramRuntime.h"
 
 #include <algorithm>
 #include <cstring>
@@ -60,12 +61,15 @@ struct RgbColor {
 NimBLECharacteristic* provisioningStatusCharacteristic = nullptr;
 QueueHandle_t provisioningQueue = nullptr;
 WiFiClient wifiClient;
-MQTTClient mqttClient(2048);
+MQTTClient mqttClient(256 * 1024);
 
 char deviceId[32]{};
 char colorTopic[128]{};
 char sensorTopic[128]{};
 char statusTopic[128]{};
+char programDeployTopic[128]{};
+char programControlTopic[128]{};
+char programStatusTopic[128]{};
 char mqttHost[MaximumMqttHostLength + 1]{};
 char mqttPassword[MqttPasswordLength + 1]{};
 uint16_t mqttPort = 0;
@@ -84,6 +88,31 @@ unsigned long lastLedRefreshAt = 0;
 uint32_t colorSequence = 0;
 uint32_t sensorSequence = 0;
 RgbColor currentColor{255, 0, 0};
+HardwareConfiguration hardwareConfiguration;
+ProgramRuntime* programRuntime = nullptr;
+uint32_t programStatusSequence = 0;
+
+void publishProgramStatus(const char* requestId, const char* state, const char* errorCode) {
+    if (!mqttClient.connected()) return;
+    char payload[768]{};
+    snprintf(payload, sizeof(payload),
+        "{\"version\":1,\"sequence\":%lu,\"requestId\":\"%s\",\"state\":\"%s\",\"programId\":\"%s\"%s%s%s}",
+        static_cast<unsigned long>(programStatusSequence++), requestId, state,
+        programRuntime == nullptr ? "" : programRuntime->programId().c_str(),
+        errorCode && errorCode[0] ? ",\"errorCode\":\"" : "",
+        errorCode && errorCode[0] ? errorCode : "",
+        errorCode && errorCode[0] ? "\"" : "");
+    mqttClient.publish(programStatusTopic, payload, true, 1);
+}
+
+void receiveMqttMessage(String& topic, String& payload) {
+    if (programRuntime == nullptr) return;
+    String error;
+    bool accepted = false;
+    if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
+    else if (topic == programControlTopic) accepted = programRuntime->control(payload, error);
+    if (!accepted && !error.isEmpty()) publishProgramStatus("", "failed", error.c_str());
+}
 
 void setProvisioningStatus(const char* status) {
     if (provisioningStatusCharacteristic != nullptr) {
@@ -393,7 +422,9 @@ uint32_t triangleValue(unsigned long now, uint32_t periodMs, uint32_t maximum) {
 }
 
 void publishSyntheticSensorSnapshot(bool force = false) {
-    if (!mqttClient.connected()) {
+    // User programs read the in-memory hardware cache. Live UI announcements are
+    // deliberately silenced during execution to keep the first runtime predictable.
+    if (!mqttClient.connected() || (programRuntime != nullptr && programRuntime->running())) {
         return;
     }
 
@@ -530,6 +561,8 @@ void tryConnectMqtt() {
         mqttFailureReported = false;
         setProvisioningStatus("mqtt-connected");
         mqttClient.publish(statusTopic, "online", true, 1);
+        mqttClient.subscribe(programDeployTopic, 1);
+        mqttClient.subscribe(programControlTopic, 1);
         publishColor(true);
         publishSyntheticSensorSnapshot(true);
         Serial.println("Connected to the embedded MQTT broker.");
@@ -641,6 +674,17 @@ void setup() {
     snprintf(colorTopic, sizeof(colorTopic), "robobooth/v1/devices/%s/state/color", deviceId);
     snprintf(sensorTopic, sizeof(sensorTopic), "robobooth/v1/devices/%s/telemetry/sensors", deviceId);
     snprintf(statusTopic, sizeof(statusTopic), "robobooth/v1/devices/%s/status", deviceId);
+    snprintf(programDeployTopic, sizeof(programDeployTopic), "robobooth/v1/devices/%s/program/deploy", deviceId);
+    snprintf(programControlTopic, sizeof(programControlTopic), "robobooth/v1/devices/%s/program/control", deviceId);
+    snprintf(programStatusTopic, sizeof(programStatusTopic), "robobooth/v1/devices/%s/program/status", deviceId);
+    programRuntime = new ProgramRuntime(
+        hardwareConfiguration,
+        [](const char* requestId, const char* state, const char* error) { publishProgramStatus(requestId, state, error); },
+        [](uint8_t red, uint8_t green, uint8_t blue) {
+            currentColor = {red, green, blue};
+            showStatus(red, green, blue);
+        });
+    mqttClient.onMessage(receiveMqttMessage);
 
     // Provisioning values are kept only in RAM. The server computer owns their
     // DPAPI-protected persistence and sends them again after every board restart.
@@ -714,7 +758,8 @@ void setup() {
 }
 
 void loop() {
-    updateLedAnimation();
+    if (programRuntime == nullptr || !programRuntime->running()) updateLedAnimation();
+    if (programRuntime != nullptr) programRuntime->tick();
     startPendingProvisioning();
     updateNetworkConnections();
     delay(10);

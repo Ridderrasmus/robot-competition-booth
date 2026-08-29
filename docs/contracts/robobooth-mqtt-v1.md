@@ -44,16 +44,17 @@ The required idle loop is:
 3. Publish the latest snapshot without waiting for a subscriber.
 4. Continue servicing safety, MQTT, and BLE work even if a sensor is invalid.
 
-During `running`, telemetry is optional and should be rate-limited to at most 5 Hz. Sensor polling itself continues so
+During `running`, this implementation does not publish live telemetry. Sensor polling itself continues so
 program reporter blocks remain current. A missing reading is represented by `valid: false` and a nullable measurement;
 it must never freeze the program or MQTT loop. The web UI considers a snapshot stale after two seconds.
 
 ## Compile and deployment lifecycle
 
 1. The editor saves Blockly serialization JSON under the selected device and workspace name.
-2. `tools/compile_workspace.py` validates that graph and emits a
+2. The web host's C# `WorkspaceCompiler` validates that graph and emits a
    [`program-package.schema.json`](schemas/program-package.schema.json) instruction package. Blockly coordinates,
    comments, and visual layout do not enter the instruction graph.
+   `tools/compile_workspace.py` remains a compatible developer utility and is not used by the running application.
 3. The web host validates the package and computes SHA-256 over the exact UTF-8 package bytes.
 4. The host publishes [`program-deploy.schema.json`](schemas/program-deploy.schema.json) with QoS 1.
 5. The robot validates the envelope, digest, contract version, opcodes, resource limits, and safety policy before

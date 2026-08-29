@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MQTTnet.Protocol;
 using MQTTnet.Server;
+using MQTTnet;
 using RobotCompetitionBooth.Web.Models;
 
 namespace RobotCompetitionBooth.Web.Services;
@@ -19,6 +20,7 @@ public sealed class EmbeddedMqttBrokerService(
     private const string ColorTopicSuffix = "/state/color";
     private const string SensorSnapshotTopicSuffix = "/telemetry/sensors";
     private const string StatusTopicSuffix = "/status";
+    private const string ProgramStatusTopicSuffix = "/program/status";
     private const int MaximumPayloadLength = 512;
     private const int MaximumSensorSnapshotPayloadLength = 8 * 1024;
 
@@ -35,6 +37,19 @@ public sealed class EmbeddedMqttBrokerService(
     };
 
     private MqttServer? mqttServer;
+
+    public async Task PublishToDeviceAsync(string deviceId, string suffix, string payload, bool retain)
+    {
+        DeviceProgramStore.ValidateDeviceId(deviceId);
+        var server = mqttServer ?? throw new InvalidOperationException("The embedded MQTT broker is not running.");
+        var message = new MqttApplicationMessageBuilder()
+            .WithTopic($"{TopicPrefix}{deviceId}/{suffix}")
+            .WithPayload(payload)
+            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+            .WithRetainFlag(retain)
+            .Build();
+        await server.InjectApplicationMessage(new InjectedMqttApplicationMessage(message) { SenderClientId = "robobooth-host" });
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -114,6 +129,12 @@ public sealed class EmbeddedMqttBrokerService(
 
     private Task InterceptPublishAsync(InterceptingPublishEventArgs args)
     {
+        // Host-injected deploy/control messages are outbound commands, not robot publications.
+        if (string.Equals(args.ClientId, "robobooth-host", StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
+
         var expectedPrefix = $"{TopicPrefix}{args.ClientId}";
         var topic = args.ApplicationMessage.Topic;
         if (!topic.StartsWith(expectedPrefix, StringComparison.Ordinal) ||
@@ -135,12 +156,31 @@ public sealed class EmbeddedMqttBrokerService(
         {
             ProcessStatusMessage(args);
         }
+        else if (topic.Equals(expectedPrefix + ProgramStatusTopicSuffix, StringComparison.Ordinal))
+        {
+            ProcessProgramStatusMessage(args);
+        }
         else
         {
             RejectPublish(args, "topic is not allowed");
         }
 
         return Task.CompletedTask;
+    }
+
+    private void ProcessProgramStatusMessage(InterceptingPublishEventArgs args)
+    {
+        if (!TryReadPayload(args, out var payload, 4 * 1024)) return;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("version", out var version) || version.GetInt32() != 1 ||
+                !root.TryGetProperty("state", out var state) || state.ValueKind != JsonValueKind.String)
+                RejectPublish(args, "program status payload is invalid");
+        }
+        catch (JsonException) { RejectPublish(args, "program status payload is not valid JSON"); }
     }
 
     private void ProcessColorMessage(InterceptingPublishEventArgs args)

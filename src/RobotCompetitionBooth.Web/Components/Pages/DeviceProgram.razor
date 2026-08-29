@@ -3,6 +3,7 @@
 @inject DeviceProgramStore ProgramStore
 @inject RobotDeviceStateService DeviceState
 @inject RobotCollaborationService Collaboration
+@inject RobotProgramDeploymentService Deployment
 @inject IJSRuntime JavaScript
 
 <PageTitle>@(device is null ? "Device program" : $"Program {device.DeviceName}")</PageTitle>
@@ -151,6 +152,12 @@
                     }
                     Save
                 </button>
+                <button class="btn btn-success" type="button"
+                        disabled="@(!workspaceReady || operationInProgress || device?.IsOnline != true)"
+                        @onclick="RunAsync">Run on robot</button>
+                <button class="btn btn-outline-danger" type="button"
+                        disabled="@(operationInProgress || device?.IsOnline != true)"
+                        @onclick="StopAsync">Stop</button>
             </div>
         </section>
 
@@ -526,6 +533,31 @@
             saveInProgress = false;
             operationInProgress = false;
         }
+    }
+
+    private async Task RunAsync()
+    {
+        if (workspaceModule is null || !workspaceReady || operationInProgress) return;
+        operationInProgress = true;
+        try
+        {
+            var workspaceJson = await workspaceModule.InvokeAsync<string>("save", WorkspaceElementId);
+            var saved = await ProgramStore.SaveAsync(DeviceId, workspaceName, workspaceJson);
+            workspaceName = saved.Name;
+            var programId = await Deployment.CompileDeployAndRunAsync(DeviceId, saved.Name, workspaceJson);
+            statusMessage = $"Compiled and sent {programId} to the robot.";
+            statusIsError = false;
+        }
+        catch (Exception exception) { statusMessage = $"The program could not be run: {exception.Message}"; statusIsError = true; }
+        finally { operationInProgress = false; }
+    }
+
+    private async Task StopAsync()
+    {
+        operationInProgress = true;
+        try { await Deployment.StopAsync(DeviceId); statusMessage = "Stop sent to the robot."; statusIsError = false; }
+        catch (Exception exception) { statusMessage = $"The robot could not be stopped: {exception.Message}"; statusIsError = true; }
+        finally { operationInProgress = false; }
     }
 
     private async Task LoadAsync(SavedDeviceWorkspaceInfo workspaceInfo)
