@@ -123,7 +123,12 @@ public sealed class EmbeddedMqttBrokerService(
     private Task ClientDisconnectedAsync(ClientDisconnectedEventArgs args)
     {
         deviceState.SetConnectionState(args.ClientId, false);
-        logger.LogInformation("Robobooth MQTT client disconnected: {ClientId}", args.ClientId);
+        logger.LogInformation(
+            "Robobooth MQTT client disconnected: {ClientId}; type={DisconnectType}, reason={ReasonCode}, detail={ReasonString}",
+            args.ClientId,
+            args.DisconnectType,
+            args.ReasonCode,
+            args.ReasonString);
         return Task.CompletedTask;
     }
 

@@ -61,7 +61,9 @@ struct RgbColor {
 NimBLECharacteristic* provisioningStatusCharacteristic = nullptr;
 QueueHandle_t provisioningQueue = nullptr;
 WiFiClient wifiClient;
-MQTTClient mqttClient(256 * 1024);
+// Deployments need a large receive buffer, but robot publications are small.
+// Keeping the write buffer bounded avoids reserving a second 256 KiB heap block.
+MQTTClient mqttClient(256 * 1024, 8 * 1024);
 
 char deviceId[32]{};
 char colorTopic[128]{};
@@ -78,6 +80,7 @@ bool mqttConfigured = false;
 bool wifiWasConnected = false;
 bool initialWifiConnection = false;
 bool mqttFailureReported = false;
+bool mqttWasConnected = false;
 unsigned long wifiConnectionStartedAt = 0;
 unsigned long mqttConnectionStartedAt = 0;
 unsigned long lastMqttConnectAttemptAt = 0;
@@ -561,7 +564,9 @@ void publishSyntheticSensorSnapshot(bool force = false) {
 
 void configureMqttClient() {
     mqttClient.begin(mqttHost, mqttPort, wifiClient);
-    mqttClient.setOptions(15, true, 1000);
+    // The booth link is long-lived. Five seconds tolerates brief Windows/Wi-Fi
+    // scheduling stalls without turning harmless latency into a reconnect.
+    mqttClient.setOptions(30, true, 5000);
     mqttClient.setWill(statusTopic, "offline", true, 1);
     mqttConnectionStartedAt = millis();
     lastMqttConnectAttemptAt = 0;
@@ -582,6 +587,7 @@ void tryConnectMqtt() {
 
     lastMqttConnectAttemptAt = now;
     if (mqttClient.connect(deviceId, MqttUsername, mqttPassword)) {
+        mqttWasConnected = true;
         mqttFailureReported = false;
         setProvisioningStatus("mqtt-connected");
         mqttClient.publish(statusTopic, "online", true, 1);
@@ -610,10 +616,26 @@ void startPendingProvisioning() {
         return;
     }
 
+    const bool settingsAlreadyActive =
+        mqttConfigured &&
+        WiFi.status() == WL_CONNECTED &&
+        mqttClient.connected() &&
+        mqttPort == settings.mqttPort &&
+        strcmp(mqttHost, settings.mqttHost) == 0 &&
+        strcmp(mqttPassword, settings.mqttPassword) == 0 &&
+        WiFi.SSID() == settings.ssid;
+    if (settingsAlreadyActive) {
+        std::memset(&settings, 0, sizeof(settings));
+        setProvisioningStatus("mqtt-connected");
+        Serial.println("Received the already-active network settings; keeping the existing MQTT connection.");
+        return;
+    }
+
     if (mqttClient.connected()) {
         mqttClient.publish(statusTopic, "offline", true, 1);
         mqttClient.disconnect();
     }
+    mqttWasConnected = false;
 
     std::memset(mqttHost, 0, sizeof(mqttHost));
     std::memset(mqttPassword, 0, sizeof(mqttPassword));
@@ -671,7 +693,16 @@ void updateNetworkConnections() {
         Serial.println("Wi-Fi connection established; connecting to MQTT.");
     }
 
-    mqttClient.loop();
+    if (mqttClient.connected() && !mqttClient.loop()) {
+        Serial.printf(
+            "MQTT loop ended the connection (error %d, return code %d); reconnecting.\n",
+            static_cast<int>(mqttClient.lastError()),
+            static_cast<int>(mqttClient.returnCode()));
+    }
+    if (mqttWasConnected && !mqttClient.connected()) {
+        mqttWasConnected = false;
+        lastMqttConnectAttemptAt = 0;
+    }
     flushProgramStatus();
     tryConnectMqtt();
     publishColor();
@@ -715,6 +746,7 @@ void setup() {
     // DPAPI-protected persistence and sends them again after every board restart.
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     WiFi.disconnect(false, true);
 
