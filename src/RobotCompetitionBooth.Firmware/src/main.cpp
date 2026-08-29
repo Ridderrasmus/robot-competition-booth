@@ -91,6 +91,8 @@ unsigned long lastLedRefreshAt = 0;
 uint32_t colorSequence = 0;
 uint32_t sensorSequence = 0;
 RgbColor currentColor{255, 0, 0};
+bool idleConnectionState = false;
+bool idleConnectionStateInitialized = false;
 HardwareConfiguration hardwareConfiguration;
 ProgramRuntime* programRuntime = nullptr;
 uint32_t programStatusSequence = 0;
@@ -138,7 +140,12 @@ void receiveMqttMessage(String& topic, String& payload) {
     bool accepted = false;
     if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
     else if (topic == programControlTopic) accepted = programRuntime->control(payload, error);
-    if (!accepted && !error.isEmpty()) queueProgramStatus("", "failed", error.c_str());
+    if (accepted) {
+        Serial.printf("Accepted %s.\n", topic.c_str());
+    } else if (!error.isEmpty()) {
+        Serial.printf("Rejected %s: %s.\n", topic.c_str(), error.c_str());
+        queueProgramStatus("", "failed", error.c_str());
+    }
 }
 
 void setProvisioningStatus(const char* status) {
@@ -164,7 +171,17 @@ void updateIdleStatusLight() {
     }
 
     lastLedRefreshAt = now;
-    currentColor = bleAuthenticated ? RgbColor{0, 255, 0} : RgbColor{255, 0, 0};
+    const bool connected = bleAuthenticated || mqttClient.connected();
+    if (!idleConnectionStateInitialized || connected != idleConnectionState) {
+        idleConnectionState = connected;
+        idleConnectionStateInitialized = true;
+        Serial.printf(
+            "Idle status light: %s (BLE authenticated: %s, MQTT connected: %s).\n",
+            connected ? "green" : "red",
+            bleAuthenticated ? "yes" : "no",
+            mqttClient.connected() ? "yes" : "no");
+    }
+    currentColor = connected ? RgbColor{0, 255, 0} : RgbColor{255, 0, 0};
     showStatus(
         static_cast<uint8_t>((static_cast<uint16_t>(currentColor.red) * LedBrightness) / 255),
         static_cast<uint8_t>((static_cast<uint16_t>(currentColor.green) * LedBrightness) / 255),
