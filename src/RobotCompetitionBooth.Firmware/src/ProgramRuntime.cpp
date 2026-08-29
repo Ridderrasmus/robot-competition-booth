@@ -91,7 +91,7 @@ void ProgramRuntime::runOne(JsonObjectConst n) {
     else if (!strcmp(op,"prg_reset_timer")) timers_[0]=millis();
     else if (!strcmp(op,"rbt_set_status_light") || !strcmp(op,"robot_set_light")) { String c=n["fields"]["COLOUR"]|"#000000"; long rgb=strtol(c.c_str()+1,nullptr,16); light_(rgb>>16,(rgb>>8)&255,rgb&255); }
     else if (!strcmp(op,"rbt_clear_status_light")) light_(0,0,0);
-    else if (!strcmp(op,"rbt_blink_status_light")) { int times=constrain(number(input(n,"TIMES")),0,50); for(int i=0;i<times;i++){ light_(0,0,255);delay(150);light_(0,0,0);delay(150);} }
+    else if (!strcmp(op,"rbt_blink_status_light")) { String c=n["fields"]["COLOUR"]|"#0000ff"; long rgb=strtol(c.c_str()+1,nullptr,16); int times=constrain(number(input(n,"TIMES")),0,50); for(int i=0;i<times;i++){light_(rgb>>16,(rgb>>8)&255,rgb&255);delay(150);light_(0,0,0);delay(150);} }
     else if (!strcmp(op,"mot_run")) { int i=motorIndex(n["fields"]["MOTOR"]); motorSpeed_[i]=clampSpeed(number(input(n,"SPEED"))); drive(motorSpeed_[0],motorSpeed_[1]); }
     else if (!strncmp(op,"mot_run_for_",12)) { int i=motorIndex(n["fields"]["MOTOR"]); motorSpeed_[i]=clampSpeed(number(input(n,"SPEED"))); drive(motorSpeed_[0],motorSpeed_[1]); delay(!strcmp(op,"mot_run_for_ms")?number(input(n,"TIME")):100); motorSpeed_[i]=0; drive(motorSpeed_[0],motorSpeed_[1]); }
     else if (!strcmp(op,"mot_stop" )||!strcmp(op,"mot_stop_mode")) { motorSpeed_[motorIndex(n["fields"]["MOTOR"])]=0; drive(motorSpeed_[0],motorSpeed_[1]); }

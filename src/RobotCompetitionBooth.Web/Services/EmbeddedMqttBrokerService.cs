@@ -130,7 +130,8 @@ public sealed class EmbeddedMqttBrokerService(
     private Task InterceptPublishAsync(InterceptingPublishEventArgs args)
     {
         // Host-injected deploy/control messages are outbound commands, not robot publications.
-        if (string.Equals(args.ClientId, "robobooth-host", StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(args.ClientId) ||
+            string.Equals(args.ClientId, "robobooth-host", StringComparison.Ordinal))
         {
             return Task.CompletedTask;
         }
