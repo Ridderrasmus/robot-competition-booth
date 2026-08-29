@@ -110,13 +110,15 @@ The internal serial reader defaults to `COM5` at `115200` baud and is not expose
 `RobotSerial:PortName` and `RobotSerial:BaudRate`, or set `RobotSerial:Enabled` to `false`, when the server computer
 uses a different USB setup.
 
-From Admin, **Firmware flashing** (`/admin/firmware`) lists COM ports currently reported by Windows. Flashing is
-disabled when the PlatformIO CLI or firmware project is unavailable. After confirmation, the server temporarily
-releases the selected port from USB serial logging, runs the configured PlatformIO environment, streams its output,
-and resumes serial logging when the upload succeeds, fails, times out, or is cancelled. Only one flash can run at a
-time. The default settings use the `pio` executable, environment `esp32-s3-n16r8`, and a ten-minute timeout; override
-them under `FirmwareFlashing` in configuration when necessary. Published builds include a copy of the firmware
-project beside the application, but PlatformIO and its toolchain must still be installed on the server computer.
+From Admin, **Firmware flashing** (`/admin/firmware`) lists COM ports currently reported by Windows and accepts the
+robot's `RobotBooth-` name suffix and 1–6 digit BLE connection code. Those values are validated and compiled into
+that individual firmware image; the connection code is never written to the flash-output log. Flashing is disabled
+when the PlatformIO CLI or firmware project is unavailable. After confirmation, the server temporarily releases the
+selected port from USB serial logging, runs the configured PlatformIO environment, streams its output, and resumes
+serial logging when the upload succeeds, fails, times out, or is cancelled. Only one flash can run at a time. The
+default settings use the `pio` executable, environment `esp32-s3-n16r8`, and a ten-minute timeout; override them under
+`FirmwareFlashing` in configuration when necessary. Published builds include a copy of the firmware project beside
+the application, but PlatformIO and its toolchain must still be installed on the server computer.
 
 The connection is accepted only after the server finds the firmware's custom service, securely reads the status characteristic value `ready`, provisions Wi-Fi and MQTT, and reads back the `mqtt-connected` status.
 
@@ -150,7 +152,7 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - Application startup sweeps any saved `RobotBooth-*` BLE bonds left by an earlier forced or interrupted process exit. Disconnect and orderly shutdown perform the same Windows-wide sweep.
 - `GattSession.MaintainConnection` lets Windows reconnect when a paired board returns to range. It does not persist the live connection across a website process restart.
 - Wi-Fi and Bluetooth setup require the circuit-scoped admin password, but this is not a replacement for full user authentication, HTTPS, or rate limiting. Change the default password and do not expose the website to an untrusted network.
-- The ESP32 firmware advertises as `RobotBooth-ESP32S3` and exposes its custom service over BLE.
+- The ESP32 firmware advertises using its flashed `RobotBooth-` name and exposes its custom service over BLE.
 
 ## Important source files
 

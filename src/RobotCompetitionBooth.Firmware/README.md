@@ -11,9 +11,9 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
 
 ## Current behavior
 
-- Advertises a connectable Bluetooth Low Energy peripheral named `RobotBooth-ESP32S3`.
+- Advertises a connectable Bluetooth Low Energy peripheral using the name compiled into the image; the default is `RobotBooth-ESP32S3`.
 - Starts authenticated, bonded BLE pairing as soon as a client connects.
-- Uses the constant passkey `000123`.
+- Uses the pairing passkey compiled into the image; the default is `000123`.
 - Exposes a small authenticated status characteristic whose value is `ready`.
 - Accepts a secured or open Wi-Fi network and the app's authenticated MQTT endpoint together through a write-only provisioning characteristic using 20-byte-or-smaller packets.
 - Exposes an authenticated provisioning status characteristic so the server can wait for `mqtt-connected` or report a Wi-Fi/MQTT failure.
@@ -29,7 +29,10 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
 - Restarts advertising after a client disconnects.
 - Uses red as a fatal-startup indicator; during normal operation the built-in RGB LED runs the colour animation.
 
-BLE passkeys are always represented as six digits. The requested three-digit code `123` therefore appears as `000123` in pairing dialogs.
+The admin firmware-flashing page supplies a `RobotBooth-` name suffix and a 1–6 digit connection code to each
+build. BLE passkeys are always represented as six digits, so a code such as `123` appears as `000123` in pairing
+dialogs. Ordinary PlatformIO builds use the defaults above unless `ROBOBOOTH_DEVICE_NAME` and
+`ROBOBOOTH_PAIRING_PASSKEY` are supplied as build defines.
 
 The project-local `esp32-s3-n16r8` board profile matches the ESP32-S3-WROOM-1-N16R8 module used here:
 

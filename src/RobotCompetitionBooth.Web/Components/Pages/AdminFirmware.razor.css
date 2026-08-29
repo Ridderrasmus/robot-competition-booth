@@ -64,6 +64,34 @@
     padding: 0 1rem 1rem;
 }
 
+.firmware-identity {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem 1rem;
+    padding: 0 1rem 1rem;
+}
+
+.firmware-identity-heading,
+.firmware-identity > .text-danger {
+    grid-column: 1 / -1;
+}
+
+.firmware-identity-heading h3 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.firmware-identity-heading p {
+    margin: 0.2rem 0 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.8rem;
+}
+
+.firmware-identity .input-group-text {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.82rem;
+}
+
 .firmware-card > .btn {
     margin: 0 1rem 1rem;
 }
@@ -133,5 +161,14 @@
 
     .firmware-confirm > div:last-child {
         flex-wrap: wrap;
+    }
+
+    .firmware-identity {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .firmware-identity-heading,
+    .firmware-identity > .text-danger {
+        grid-column: auto;
     }
 }

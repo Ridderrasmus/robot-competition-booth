@@ -41,3 +41,7 @@ public sealed record FirmwareFlashState(
     bool? Succeeded);
 
 public sealed record FirmwareFlashResult(bool Succeeded, string Message);
+
+public sealed record FirmwareBuildConfiguration(
+    string RobotName,
+    string PairingCode);

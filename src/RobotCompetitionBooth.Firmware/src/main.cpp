@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include "BuildConfig.h"
 #include "ProgramRuntime.h"
 
 #include <algorithm>
@@ -14,12 +15,11 @@
 
 namespace {
 
-constexpr char DeviceName[] = "RobotBooth-ESP32S3";
+constexpr const char* DeviceName = RobotBuildConfig::DeviceName;
 constexpr char MqttUsername[] = "robobooth";
 
-// BLE passkeys are six digits. The requested three-digit code is represented
-// with leading zeroes in pairing dialogs: enter 000123.
-constexpr uint32_t PairingPasskey = 123;
+// BLE displays passkeys as six digits, adding leading zeroes when necessary.
+constexpr uint32_t PairingPasskey = RobotBuildConfig::PairingPasskey;
 
 constexpr char ServiceUuid[] = "8ddf7a40-7520-4e57-9e32-9b6b091c5c8b";
 constexpr char StatusCharacteristicUuid[] = "f6eb0c76-11a6-4a5f-a58d-6b55d94ff31a";

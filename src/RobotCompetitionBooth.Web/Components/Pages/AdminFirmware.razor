@@ -100,12 +100,54 @@
                     </select>
                 </div>
 
+                <div class="firmware-identity" aria-labelledby="firmware-identity-heading">
+                    <div class="firmware-identity-heading">
+                        <h3 id="firmware-identity-heading">Robot identity</h3>
+                        <p>These values are compiled into this firmware image.</p>
+                    </div>
+                    <div>
+                        <label class="form-label" for="firmware-robot-name">Robot name</label>
+                        <div class="input-group">
+                            <span class="input-group-text">@FirmwareFlashingService.RobotNamePrefix</span>
+                            <input id="firmware-robot-name"
+                                   class="form-control"
+                                   maxlength="@(FirmwareFlashingService.MaximumRobotNameLength - FirmwareFlashingService.RobotNamePrefix.Length)"
+                                   autocomplete="off"
+                                   disabled="@flashState.IsRunning"
+                                   @bind="robotNameSuffix"
+                                   @bind:event="oninput"
+                                   @bind:after="ConfigurationChanged" />
+                        </div>
+                        <div class="form-text">Use letters, numbers, hyphens, or underscores.</div>
+                    </div>
+                    <div>
+                        <label class="form-label" for="firmware-pairing-code">Connection code</label>
+                        <input id="firmware-pairing-code"
+                               class="form-control"
+                               type="password"
+                               inputmode="numeric"
+                               pattern="[0-9]{1,6}"
+                               minlength="1"
+                               maxlength="6"
+                               autocomplete="new-password"
+                               disabled="@flashState.IsRunning"
+                               @bind="pairingCode"
+                               @bind:event="oninput"
+                               @bind:after="ConfigurationChanged" />
+                        <div class="form-text">Enter 1–6 digits. BLE displays it as six digits with leading zeroes.</div>
+                    </div>
+                    @if (ConfigurationError is not null)
+                    {
+                        <div class="text-danger small" role="status">@ConfigurationError</div>
+                    }
+                </div>
+
                 @if (confirmationRequested)
                 {
                     <div class="firmware-confirm" role="group" aria-label="Confirm firmware flash">
                         <div>
                             <strong>Flash @selectedPort?</strong>
-                            <span>The device will reboot and its existing firmware will be replaced.</span>
+                            <span>@RobotName will be flashed with the selected connection code. The device will reboot and its existing firmware will be replaced.</span>
                         </div>
                         <div>
                             <button class="btn btn-danger"
@@ -175,6 +217,8 @@
     private PlatformIoAvailability? availability;
     private FirmwareFlashState flashState = new(false, null, "No firmware flash has been started.", null, null, null);
     private string? selectedPort;
+    private string robotNameSuffix = "ESP32S3";
+    private string pairingCode = "123";
     private string? message;
     private bool messageIsError;
     private bool confirmationRequested;
@@ -183,8 +227,14 @@
     private bool CanFlash =>
         availability?.IsAvailable is true &&
         !string.IsNullOrWhiteSpace(selectedPort) &&
+        ConfigurationError is null &&
         !flashState.IsRunning &&
         !loading;
+
+    private string RobotName => FirmwareFlashingService.RobotNamePrefix + robotNameSuffix.Trim();
+
+    private string? ConfigurationError => FirmwareFlashingService.ValidateBuildConfiguration(
+        new FirmwareBuildConfiguration(RobotName, pairingCode));
 
     protected override void OnInitialized()
     {
@@ -246,6 +296,12 @@
         message = null;
     }
 
+    private void ConfigurationChanged()
+    {
+        confirmationRequested = false;
+        message = null;
+    }
+
     private async Task FlashAsync()
     {
         if (!CanFlash || selectedPort is null)
@@ -255,7 +311,9 @@
 
         confirmationRequested = false;
         message = null;
-        var result = await FirmwareFlashing.FlashAsync(selectedPort);
+        var result = await FirmwareFlashing.FlashAsync(
+            selectedPort,
+            new FirmwareBuildConfiguration(RobotName, pairingCode));
         message = result.Message;
         messageIsError = !result.Succeeded;
         await RefreshPortsAfterFlashAsync();

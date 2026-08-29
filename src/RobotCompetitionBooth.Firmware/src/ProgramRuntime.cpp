@@ -1,4 +1,5 @@
 #include "ProgramRuntime.h"
+#include "BuildConfig.h"
 #include <WiFi.h>
 #include <cmath>
 
@@ -166,5 +167,5 @@ double ProgramRuntime::number(JsonObjectConst n) {
     // Disabled/unconfigured sensors consistently report neutral values without blocking.
     return 0;
 }
-String ProgramRuntime::text(JsonObjectConst n){if(n.isNull())return "";const char* op=n["opcode"]|"";if(!strcmp(op,"text"))return n["fields"]["TEXT"]|"";if(!strcmp(op,"rbt_name"))return "RobotBooth-ESP32S3";return String(number(n));}
+String ProgramRuntime::text(JsonObjectConst n){if(n.isNull())return "";const char* op=n["opcode"]|"";if(!strcmp(op,"text"))return n["fields"]["TEXT"]|"";if(!strcmp(op,"rbt_name"))return RobotBuildConfig::DeviceName;return String(number(n));}
 bool ProgramRuntime::boolean(JsonObjectConst n){if(n.isNull())return false;const char* op=n["opcode"]|"";if(!strcmp(op,"logic_boolean"))return !strcmp(n["fields"]["BOOL"]|"FALSE","TRUE");if(!strcmp(op,"logic_negate"))return !boolean(input(n,"BOOL"));if(!strcmp(op,"rbt_is_connected")||!strcmp(op,"com_dashboard_connected"))return WiFi.isConnected();return number(n)!=0;}

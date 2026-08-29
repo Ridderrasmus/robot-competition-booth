@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Ports;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
@@ -15,6 +16,8 @@ public sealed partial class FirmwareFlashingService(
     IHostEnvironment environment,
     ILogger<FirmwareFlashingService> logger)
 {
+    public const string RobotNamePrefix = "RobotBooth-";
+    public const int MaximumRobotNameLength = 24;
     private const int MaximumBufferedLines = 2000;
     private static readonly TimeSpan AvailabilityTimeout = TimeSpan.FromSeconds(10);
 
@@ -117,6 +120,7 @@ public sealed partial class FirmwareFlashingService(
 
     public async Task<FirmwareFlashResult> FlashAsync(
         string portName,
+        FirmwareBuildConfiguration buildConfiguration,
         CancellationToken cancellationToken = default)
     {
         if (!await flashLock.WaitAsync(0, cancellationToken))
@@ -126,7 +130,7 @@ public sealed partial class FirmwareFlashingService(
 
         try
         {
-            return await FlashCoreAsync(portName, cancellationToken);
+            return await FlashCoreAsync(portName, buildConfiguration, cancellationToken);
         }
         finally
         {
@@ -151,6 +155,7 @@ public sealed partial class FirmwareFlashingService(
 
     private async Task<FirmwareFlashResult> FlashCoreAsync(
         string portName,
+        FirmwareBuildConfiguration buildConfiguration,
         CancellationToken cancellationToken)
     {
         var normalizedPort = portName.Trim().ToUpperInvariant();
@@ -158,6 +163,15 @@ public sealed partial class FirmwareFlashingService(
         {
             return new(false, "Select a valid COM port.");
         }
+
+        var configurationError = ValidateBuildConfiguration(buildConfiguration);
+        if (configurationError is not null)
+        {
+            return new(false, configurationError);
+        }
+
+        var robotName = buildConfiguration.RobotName.Trim();
+        var pairingPasskey = uint.Parse(buildConfiguration.PairingCode);
 
         var ports = await ListPortsAsync();
         if (!ports.Any(port => string.Equals(port.PortName, normalizedPort, StringComparison.OrdinalIgnoreCase)))
@@ -183,6 +197,8 @@ public sealed partial class FirmwareFlashingService(
         PublishLine(false, $"PlatformIO project: {availability.ProjectDirectory}");
         PublishLine(false, $"Environment: {configured.Environment}");
         PublishLine(false, $"Upload port: {normalizedPort}");
+        PublishLine(false, $"Robot name: {robotName}");
+        PublishLine(false, "A custom BLE connection code will be compiled into this image.");
 
         using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         operationCancellation.CancelAfter(TimeSpan.FromMinutes(configured.TimeoutMinutes));
@@ -207,6 +223,8 @@ public sealed partial class FirmwareFlashingService(
                 availability.ProjectDirectory,
                 configured.Environment.Trim(),
                 normalizedPort,
+                robotName,
+                pairingPasskey,
                 operationCancellation.Token);
 
             if (exitCode != 0)
@@ -263,10 +281,20 @@ public sealed partial class FirmwareFlashingService(
         string projectDirectory,
         string environmentName,
         string portName,
+        string robotName,
+        uint pairingPasskey,
         CancellationToken cancellationToken)
     {
-        using var process = CreateProcess(executable, projectDirectory,
-            ["run", "--project-dir", projectDirectory, "--environment", environmentName, "--target", "upload", "--upload-port", portName]);
+        var buildFlags = string.Join(' ',
+            "-DARDUINO_USB_MODE=1",
+            "-DARDUINO_USB_CDC_ON_BOOT=1",
+            $"-DROBOBOOTH_DEVICE_NAME=\\\"{robotName}\\\"",
+            $"-DROBOBOOTH_PAIRING_PASSKEY={pairingPasskey.ToString(CultureInfo.InvariantCulture)}");
+        using var process = CreateProcess(
+            executable,
+            projectDirectory,
+            ["run", "--project-dir", projectDirectory, "--environment", environmentName, "--target", "upload", "--upload-port", portName],
+            new Dictionary<string, string> { ["PLATFORMIO_BUILD_FLAGS"] = buildFlags });
         if (!process.Start())
         {
             throw new InvalidOperationException("PlatformIO could not be started.");
@@ -332,7 +360,8 @@ public sealed partial class FirmwareFlashingService(
     private static Process CreateProcess(
         string executable,
         string workingDirectory,
-        IReadOnlyList<string> arguments)
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string>? environmentVariables = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -346,6 +375,14 @@ public sealed partial class FirmwareFlashingService(
         foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
+        }
+
+        if (environmentVariables is not null)
+        {
+            foreach (var (name, value) in environmentVariables)
+            {
+                startInfo.Environment[name] = value;
+            }
         }
 
         return new Process { StartInfo = startInfo };
@@ -450,11 +487,33 @@ public sealed partial class FirmwareFlashingService(
     private static string CleanMessage(Exception exception) =>
         exception.Message.ReplaceLineEndings(" ").Trim();
 
+    public static string? ValidateBuildConfiguration(FirmwareBuildConfiguration configuration)
+    {
+        var robotName = configuration.RobotName?.Trim() ?? string.Empty;
+        if (!RobotNameRegex().IsMatch(robotName) || robotName.Length > MaximumRobotNameLength)
+        {
+            return $"Robot name must start with {RobotNamePrefix} and use only letters, numbers, hyphens, or underscores ({MaximumRobotNameLength} characters maximum).";
+        }
+
+        if (!PairingCodeRegex().IsMatch(configuration.PairingCode ?? string.Empty))
+        {
+            return "Connection code must contain between one and six digits.";
+        }
+
+        return null;
+    }
+
     [GeneratedRegex("^COM[1-9][0-9]{0,4}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ComPortRegex();
 
     [GeneratedRegex(@"\b(COM[1-9][0-9]{0,4})\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ComPortInNameRegex();
+
+    [GeneratedRegex("^RobotBooth-[A-Za-z0-9][A-Za-z0-9_-]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex RobotNameRegex();
+
+    [GeneratedRegex("^[0-9]{1,6}$", RegexOptions.CultureInvariant)]
+    private static partial Regex PairingCodeRegex();
 
     private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
 }
