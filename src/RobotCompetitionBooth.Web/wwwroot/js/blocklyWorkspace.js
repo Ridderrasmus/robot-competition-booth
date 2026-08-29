@@ -279,8 +279,18 @@ export function create(elementId, initialStateJson) {
         trashcan: true
     });
 
+    let initialStateLoadError = null;
     if (initialStateJson) {
-        blockly.serialization.workspaces.load(JSON.parse(initialStateJson), workspace);
+        try {
+            blockly.serialization.workspaces.load(JSON.parse(initialStateJson), workspace);
+        } catch (error) {
+            // Keep the saved file untouched and recover the editor with a clean
+            // program. The caller gives the blank workspace a new file name so
+            // a later save cannot overwrite the workspace that failed to load.
+            workspace.clear();
+            addStarterBlock(workspace);
+            initialStateLoadError = error instanceof Error ? error.message : String(error);
+        }
     } else {
         addStarterBlock(workspace);
     }
@@ -314,6 +324,7 @@ export function create(elementId, initialStateJson) {
         remoteCursors: new Map()
     });
     blockly.svgResize(workspace);
+    return initialStateLoadError;
 }
 
 export function save(elementId) {

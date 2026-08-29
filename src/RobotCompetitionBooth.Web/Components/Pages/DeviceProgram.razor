@@ -430,10 +430,19 @@
                 workspaceName = GetNextWorkspaceName();
             }
 
-            await workspaceModule.InvokeVoidAsync(
+            var initialStateLoadError = await workspaceModule.InvokeAsync<string?>(
                 "create",
                 WorkspaceElementId,
                 savedWorkspace?.WorkspaceJson);
+            if (!string.IsNullOrWhiteSpace(initialStateLoadError) && savedWorkspace is not null)
+            {
+                var failedWorkspaceName = savedWorkspace.Name;
+                workspaceName = GetNextWorkspaceName();
+                statusMessage = $"{failedWorkspaceName}.json could not be opened, so a new blank " +
+                    $"{workspaceName}.json workspace was created. The original saved file was not changed. " +
+                    $"Details: {initialStateLoadError}";
+                statusIsError = true;
+            }
             var initialWorkspaceJson = await workspaceModule.InvokeAsync<string>(
                 "save",
                 WorkspaceElementId);

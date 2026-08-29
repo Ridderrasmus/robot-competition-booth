@@ -231,8 +231,9 @@ const advanced = (label, sections) => [
 const numberShadow = value => ({ shadow: { type: "math_number", fields: { NUM: value } } });
 
 export function defineRobotBlocks(blockly) {
-    if (!blockly.fieldRegistry.getClass("field_colour", false)) {
+    if (!globalThis.__roboboothColourFieldRegistered) {
         globalThis.registerFieldColour();
+        globalThis.__roboboothColourFieldRegistered = true;
     }
     if (!blockly.Blocks.prg_on_start) blockly.common.defineBlocksWithJsonArray(specs.map(definition));
     if (!blockly.Blocks.robot_start) {
