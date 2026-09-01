@@ -15,6 +15,8 @@ public sealed class EmbeddedMqttBrokerService(
     MqttBrokerAccessService accessService,
     RobotDeviceStateService deviceState,
     RobotDiagnosticLogService diagnosticLogs,
+    RobotHardwareConfigurationStore hardwareConfigurations,
+    RobotHardwareConfigurationStatusService hardwareConfigurationStatuses,
     ILogger<EmbeddedMqttBrokerService> logger) : BackgroundService
 {
     private const string TopicPrefix = "robobooth/v1/devices/";
@@ -24,6 +26,7 @@ public sealed class EmbeddedMqttBrokerService(
     private const string DiagnosticLogTopicSuffix = "/telemetry/logs";
     private const string StatusTopicSuffix = "/status";
     private const string ProgramStatusTopicSuffix = "/program/status";
+    private const string HardwareStatusTopicSuffix = "/hardware/status";
     private const int MaximumPayloadLength = 512;
     private const int MaximumSensorSnapshotPayloadLength = 8 * 1024;
     private const int MaximumDiagnosticLogPayloadLength = 2 * 1024;
@@ -121,17 +124,39 @@ public sealed class EmbeddedMqttBrokerService(
         return Task.CompletedTask;
     }
 
-    private Task ClientConnectedAsync(ClientConnectedEventArgs args)
+    private async Task ClientConnectedAsync(ClientConnectedEventArgs args)
     {
         if (string.Equals(args.ClientId, HostClientId, StringComparison.Ordinal))
         {
             logger.LogDebug("Local Robobooth command client connected");
-            return Task.CompletedTask;
+            return;
         }
 
         deviceState.SetConnectionState(args.ClientId, true);
         logger.LogInformation("Robobooth MQTT client connected: {ClientId}", args.ClientId);
-        return Task.CompletedTask;
+        try
+        {
+            var configuration = await hardwareConfigurations.LoadAsync(args.ClientId);
+            if (configuration is not null)
+            {
+                var requestId = Guid.NewGuid().ToString("N");
+                await PublishToDeviceAsync(
+                    args.ClientId,
+                    "hardware/config",
+                    configuration.ToMqttPayload(requestId),
+                    retain: true);
+                logger.LogInformation(
+                    "Queued the saved hardware configuration for {ClientId}",
+                    args.ClientId);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException)
+        {
+            logger.LogError(
+                exception,
+                "Could not send the saved hardware configuration to {ClientId}",
+                args.ClientId);
+        }
     }
 
     private Task ClientDisconnectedAsync(ClientDisconnectedEventArgs args)
@@ -190,6 +215,10 @@ public sealed class EmbeddedMqttBrokerService(
         {
             ProcessProgramStatusMessage(args);
         }
+        else if (topic.Equals(expectedPrefix + HardwareStatusTopicSuffix, StringComparison.Ordinal))
+        {
+            ProcessHardwareStatusMessage(args);
+        }
         else
         {
             RejectPublish(args, "topic is not allowed");
@@ -211,6 +240,52 @@ public sealed class EmbeddedMqttBrokerService(
                 RejectPublish(args, "program status payload is invalid");
         }
         catch (JsonException) { RejectPublish(args, "program status payload is not valid JSON"); }
+    }
+
+    private void ProcessHardwareStatusMessage(InterceptingPublishEventArgs args)
+    {
+        if (!TryReadPayload(args, out var payload, 1024)) return;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("version", out var version) || version.GetInt32() != 1 ||
+                !root.TryGetProperty("requestId", out var requestIdElement) ||
+                requestIdElement.ValueKind != JsonValueKind.String ||
+                requestIdElement.GetString() is not { Length: >= 1 and <= 64 } requestId ||
+                !root.TryGetProperty("state", out var stateElement) ||
+                stateElement.ValueKind != JsonValueKind.String ||
+                stateElement.GetString() is not { } state ||
+                state is not ("applied" or "rejected"))
+            {
+                RejectPublish(args, "hardware status payload is invalid");
+                return;
+            }
+
+            string? errorCode = null;
+            if (root.TryGetProperty("errorCode", out var errorElement))
+            {
+                if (errorElement.ValueKind != JsonValueKind.String ||
+                    errorElement.GetString() is not { Length: >= 1 and <= 64 } parsedError)
+                {
+                    RejectPublish(args, "hardware status error code is invalid");
+                    return;
+                }
+                errorCode = parsedError;
+            }
+
+            hardwareConfigurationStatuses.Report(new(
+                args.ClientId,
+                requestId,
+                state,
+                errorCode,
+                DateTimeOffset.Now));
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            RejectPublish(args, "hardware status payload is not valid JSON");
+        }
     }
 
     private void ProcessColorMessage(InterceptingPublishEventArgs args)

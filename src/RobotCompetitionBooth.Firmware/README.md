@@ -24,6 +24,12 @@ PlatformIO firmware for an ESP32-S3 board using the Arduino framework and NimBLE
   tested before physical sensor drivers are connected. Distance, detected colour, light, all five line channels,
   line position, both encoders/speeds, and all five servo angles continuously change over time.
 - Publishes retained online/offline state and automatically reconnects to Wi-Fi and MQTT.
+- Subscribes to its authenticated, device-specific `hardware/config` topic. Valid server mappings are applied without
+  rebooting; invalid, duplicate, incomplete, reserved, or capability-incompatible GPIO assignments are rejected.
+- Configures optional left/right motor PWM and direction, encoder pairs, five servos, ultrasonic trigger/echo,
+  colour-sensor I²C, and a five-channel analogue line array. Components omitted by the server remain inert.
+- Acknowledges each hardware mapping on `hardware/status`, allowing the admin page to distinguish saved configuration
+  from configuration actually accepted by the running robot.
 - Queues up to 32 diagnostic messages and publishes them on the authenticated robot-specific `telemetry/logs`
   topic for its admin-only terminal. Pairing passkeys remain local to USB serial output.
 - Restarts advertising after a client disconnects.
@@ -75,6 +81,13 @@ The RGB LED provides a basic check without a serial monitor:
 - Red held for five seconds: BLE startup failed and the board will restart.
 
 Wi-Fi and MQTT settings intentionally are not retained across board restarts. The Windows host stores them securely and sends them again whenever it establishes a Robobooth BLE connection.
+
+Hardware mappings are likewise owned by the Windows host, but are delivered over authenticated MQTT after the robot
+connects. The broker retains the current per-robot mapping and reloads it from server storage after an application restart.
+GPIO48 remains reserved for the built-in status light; flash/PSRAM, USB, and unsafe output pins are rejected.
+On the N16R8 module, GPIO35–37 are also withheld because its octal PSRAM uses them internally.
+Analogue line inputs are restricted to ADC1 GPIO1–10 so they remain usable while Wi-Fi is active.
+Strapping GPIO0, GPIO3, GPIO45, and GPIO46 are not offered for generic robot connections.
 
 Synthetic snapshots are published on `robobooth/v1/devices/<device-id>/telemetry/sensors` with `mode: "idle"` and
 match `docs/contracts/schemas/sensor-snapshot.schema.json`. Replace `publishSyntheticSensorSnapshot` with hardware

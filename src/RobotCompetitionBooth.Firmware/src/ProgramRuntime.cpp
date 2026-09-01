@@ -1,5 +1,6 @@
 #include "ProgramRuntime.h"
 #include "BuildConfig.h"
+#include <esp32-hal-ledc.h>
 #include <WiFi.h>
 #include <cmath>
 
@@ -128,7 +129,12 @@ void ProgramRuntime::drive(float left, float right) {
     motorSpeed_[0] = clampSpeed(left); motorSpeed_[1] = clampSpeed(right);
     // Disabled (-1) outputs are deliberately inert until hardware configuration exists.
     const int pwm[2] = {hardware_.leftMotorPwm, hardware_.rightMotorPwm};
-    for (int i=0;i<2;i++) if (pwm[i] >= 0) analogWrite(pwm[i], static_cast<int>(fabs(motorSpeed_[i]) * 2.55f));
+    const int direction[2] = {hardware_.leftMotorDirection, hardware_.rightMotorDirection};
+    for (int i=0;i<2;i++) {
+        if (pwm[i] < 0 || direction[i] < 0) continue;
+        digitalWrite(direction[i], motorSpeed_[i] < 0 ? HIGH : LOW);
+        ledcWrite(static_cast<uint8_t>(i), static_cast<uint32_t>(fabs(motorSpeed_[i]) * 2.55f));
+    }
 }
 
 void ProgramRuntime::runStack(JsonObjectConst node, int budget) {
@@ -150,7 +156,7 @@ void ProgramRuntime::runOne(JsonObjectConst n) {
     else if (!strcmp(op,"mot_stop_all")) drive(0,0);
     else if (!strcmp(op,"drv_tank")||!strncmp(op,"drv_tank_for_",13)) { drive(number(input(n,"LEFT")),number(input(n,"RIGHT"))); if(strstr(op,"for_")){delay(number(input(n,"TIME")));drive(0,0);} }
     else if (!strncmp(op,"drv_",4)) { float speed=clampSpeed(number(input(n,"SPEED"))); if(!strcmp(op,"drv_backward"))speed=-speed; if(strstr(op,"turn_left"))drive(-speed,speed);else if(strstr(op,"turn_right"))drive(speed,-speed);else drive(speed,speed); }
-    else if (!strcmp(op,"srv_set_angle")||!strcmp(op,"srv_center")) { int i=constrain(atoi(n["fields"]["SERVO"]|"1")-1,0,4); servoAngle_[i]=!strcmp(op,"srv_center")?90:constrain(number(input(n,"ANGLE")),0,180); if(hardware_.servos[i]>=0) analogWrite(hardware_.servos[i],map(servoAngle_[i],0,180,26,128)); }
+    else if (!strcmp(op,"srv_set_angle")||!strcmp(op,"srv_center")) { int i=constrain(atoi(n["fields"]["SERVO"]|"1")-1,0,4); servoAngle_[i]=!strcmp(op,"srv_center")?90:constrain(number(input(n,"ANGLE")),0,180); if(hardware_.servos[i]>=0) ledcWrite(static_cast<uint8_t>(2+i),map(servoAngle_[i],0,180,102,512)); }
     else if (!strcmp(op,"controls_repeat_ext")) { int count=constrain(number(input(n,"TIMES")),0,10000); while(count--&&running_)runStack(input(n,"DO")); }
     else if (!strcmp(op,"controls_if")) { if(boolean(input(n,"IF0")))runStack(input(n,"DO0"));else runStack(input(n,"ELSE")); }
     else if (!strcmp(op,"variables_set")) { /* IDs are mapped in a future typed variable table; accepted safely now. */ }

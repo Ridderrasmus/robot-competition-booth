@@ -1,0 +1,112 @@
+.robot-hardware-page {
+    max-width: 72rem;
+}
+
+.hardware-page-heading,
+.hardware-add-card,
+.hardware-component-heading,
+.hardware-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.hardware-page-heading {
+    margin-bottom: 1.5rem;
+}
+
+.hardware-add-card,
+.hardware-component-card {
+    padding: 1.25rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.85rem;
+    background: var(--bs-body-bg);
+}
+
+.hardware-add-card h2,
+.hardware-component-card legend {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 650;
+}
+
+.hardware-add-card p,
+.hardware-component-card p {
+    margin: 0.25rem 0 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.9rem;
+}
+
+.hardware-add-controls {
+    display: grid;
+    grid-template-columns: minmax(13rem, 1fr) auto;
+    gap: 0.75rem;
+    width: min(100%, 32rem);
+}
+
+.hardware-component-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.hardware-component-card {
+    min-width: 0;
+}
+
+.hardware-component-card:disabled {
+    opacity: 0.72;
+}
+
+.hardware-component-heading {
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.hardware-pin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.9rem;
+}
+
+.hardware-reserved-note {
+    margin: 1rem 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.875rem;
+}
+
+.hardware-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.hardware-empty-state {
+    padding: 1.5rem;
+    border: 1px dashed var(--bs-border-color);
+    border-radius: 0.8rem;
+    text-align: center;
+}
+
+.hardware-empty-state strong,
+.hardware-empty-state span {
+    display: block;
+}
+
+.hardware-empty-state span {
+    margin-top: 0.3rem;
+    color: var(--bs-secondary-color);
+}
+
+@media (max-width: 700px) {
+    .hardware-page-heading,
+    .hardware-add-card {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .hardware-add-controls {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,14 +1,17 @@
 #include <Arduino.h>
+#include <esp32-hal-ledc.h>
 #include <esp32-hal-rgb-led.h>
 #include <MQTT.h>
 #include <NimBLEDevice.h>
 #include <WiFi.h>
+#include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include "BuildConfig.h"
 #include "ProgramRuntime.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdarg>
 #include <cstring>
 #include <vector>
@@ -46,6 +49,7 @@ constexpr uint8_t LedBrightness = 28;
 constexpr size_t DiagnosticLogQueueLength = 32;
 constexpr size_t MaximumDiagnosticLogMessageLength = 320;
 constexpr size_t MaximumDiagnosticLogsPerLoop = 4;
+constexpr size_t HardwarePinRoleCount = 22;
 
 struct ProvisioningMessage {
     char ssid[MaximumSsidLength + 1];
@@ -85,6 +89,8 @@ char statusTopic[128]{};
 char programDeployTopic[128]{};
 char programControlTopic[128]{};
 char programStatusTopic[128]{};
+char hardwareConfigurationTopic[128]{};
+char hardwareConfigurationStatusTopic[128]{};
 char mqttHost[MaximumMqttHostLength + 1]{};
 char mqttPassword[MqttPasswordLength + 1]{};
 uint16_t mqttPort = 0;
@@ -213,18 +219,282 @@ void flushProgramStatus() {
     publishProgramStatus(status.requestId, status.state, status.errorCode);
 }
 
+bool isHardwareOutputPin(int pin) {
+    return ((pin >= 1 && pin <= 18) && pin != 3) || pin == 21 ||
+        (pin >= 38 && pin <= 44) || pin == 47;
+}
+
+bool isHardwareInputPin(int pin) { return isHardwareOutputPin(pin); }
+
+bool isHardwareAnalogPin(int pin) {
+    return pin >= 1 && pin <= 10 && pin != 3;
+}
+
+bool hardwarePairIsComplete(const int* pins, size_t first, size_t second) {
+    return (pins[first] >= 0) == (pins[second] >= 0);
+}
+
+bool hardwareGroupIsComplete(const int* pins, size_t first, size_t count) {
+    size_t configured = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (pins[first + index] >= 0) ++configured;
+    }
+    return configured == 0 || configured == count;
+}
+
+void publishHardwareConfigurationStatus(
+    const String& requestId,
+    const char* state,
+    const char* errorCode = nullptr) {
+    if (!mqttClient.connected()) return;
+    JsonDocument document;
+    document["version"] = 1;
+    document["requestId"] = requestId.isEmpty() ? "unknown" : requestId;
+    document["state"] = state;
+    if (errorCode != nullptr && errorCode[0] != '\0') {
+        document["errorCode"] = errorCode;
+    }
+    char payload[256]{};
+    const size_t length = serializeJson(document, payload, sizeof(payload));
+    if (length > 0 && length < sizeof(payload)) {
+        mqttClient.publish(hardwareConfigurationStatusTopic, payload, true, 1);
+    }
+}
+
+void applyHardwareConfiguration(const HardwareConfiguration& configuration) {
+    if (programRuntime != nullptr && programRuntime->running()) {
+        String ignored;
+        programRuntime->control(
+            "{\"version\":1,\"requestId\":\"hardware-config\",\"action\":\"stop\"}",
+            ignored);
+    }
+
+    const int oldPwmPins[] = {
+        hardwareConfiguration.leftMotorPwm,
+        hardwareConfiguration.rightMotorPwm,
+        hardwareConfiguration.servos[0],
+        hardwareConfiguration.servos[1],
+        hardwareConfiguration.servos[2],
+        hardwareConfiguration.servos[3],
+        hardwareConfiguration.servos[4]
+    };
+    for (size_t index = 0; index < 7; ++index) {
+        if (oldPwmPins[index] >= 0) {
+            ledcWrite(static_cast<uint8_t>(index), 0);
+            ledcDetachPin(oldPwmPins[index]);
+            pinMode(oldPwmPins[index], INPUT);
+        }
+    }
+
+    const int oldDigitalOutputs[] = {
+        hardwareConfiguration.leftMotorDirection,
+        hardwareConfiguration.rightMotorDirection,
+        hardwareConfiguration.distanceTrigger
+    };
+    for (int pin : oldDigitalOutputs) {
+        if (pin >= 0) {
+            digitalWrite(pin, LOW);
+            pinMode(pin, INPUT);
+        }
+    }
+    if (hardwareConfiguration.colourSda >= 0) {
+        Wire.end();
+    }
+
+    hardwareConfiguration = configuration;
+
+    const int motorPwm[] = {configuration.leftMotorPwm, configuration.rightMotorPwm};
+    const int motorDirection[] = {configuration.leftMotorDirection, configuration.rightMotorDirection};
+    for (size_t index = 0; index < 2; ++index) {
+        if (motorPwm[index] < 0) continue;
+        pinMode(motorPwm[index], OUTPUT);
+        ledcSetup(static_cast<uint8_t>(index), 1000, 8);
+        ledcAttachPin(motorPwm[index], static_cast<uint8_t>(index));
+        ledcWrite(static_cast<uint8_t>(index), 0);
+        pinMode(motorDirection[index], OUTPUT);
+        digitalWrite(motorDirection[index], LOW);
+    }
+
+    const int encoderPins[] = {
+        configuration.leftEncoderA,
+        configuration.leftEncoderB,
+        configuration.rightEncoderA,
+        configuration.rightEncoderB
+    };
+    for (int pin : encoderPins) {
+        if (pin >= 0) pinMode(pin, INPUT_PULLUP);
+    }
+
+    for (size_t index = 0; index < 5; ++index) {
+        const int pin = configuration.servos[index];
+        if (pin < 0) continue;
+        pinMode(pin, OUTPUT);
+        const uint8_t channel = static_cast<uint8_t>(index + 2);
+        ledcSetup(channel, 50, 12);
+        ledcAttachPin(pin, channel);
+        ledcWrite(channel, 0);
+    }
+
+    if (configuration.distanceTrigger >= 0) {
+        pinMode(configuration.distanceTrigger, OUTPUT);
+        digitalWrite(configuration.distanceTrigger, LOW);
+        pinMode(configuration.distanceEcho, INPUT);
+    }
+    if (configuration.colourSda >= 0) {
+        Wire.begin(configuration.colourSda, configuration.colourScl);
+    }
+    for (int pin : configuration.lineSensors) {
+        if (pin >= 0) pinMode(pin, INPUT);
+    }
+
+    size_t configuredPins = 0;
+    const int allPins[] = {
+        configuration.leftMotorPwm, configuration.leftMotorDirection,
+        configuration.rightMotorPwm, configuration.rightMotorDirection,
+        configuration.leftEncoderA, configuration.leftEncoderB,
+        configuration.rightEncoderA, configuration.rightEncoderB,
+        configuration.servos[0], configuration.servos[1], configuration.servos[2],
+        configuration.servos[3], configuration.servos[4],
+        configuration.distanceTrigger, configuration.distanceEcho,
+        configuration.colourSda, configuration.colourScl,
+        configuration.lineSensors[0], configuration.lineSensors[1],
+        configuration.lineSensors[2], configuration.lineSensors[3],
+        configuration.lineSensors[4]
+    };
+    for (int pin : allPins) {
+        if (pin >= 0) ++configuredPins;
+    }
+    logDiagnostic(
+        "info",
+        "hardware",
+        "Applied server hardware configuration with %u assigned pin(s).",
+        static_cast<unsigned>(configuredPins));
+}
+
+bool decodeAndApplyHardwareConfiguration(
+    const String& payload,
+    String& requestId,
+    String& error) {
+    static const char* pinKeys[HardwarePinRoleCount] = {
+        "leftMotorPwm", "leftMotorDirection", "rightMotorPwm", "rightMotorDirection",
+        "leftEncoderA", "leftEncoderB", "rightEncoderA", "rightEncoderB",
+        "servo1", "servo2", "servo3", "servo4", "servo5",
+        "distanceTrigger", "distanceEcho", "colourSda", "colourScl",
+        "lineLeftOuter", "lineLeft", "lineCentre", "lineRight", "lineRightOuter"
+    };
+
+    JsonDocument document;
+    const auto parseResult = deserializeJson(document, payload);
+    if (parseResult || document["version"].as<int>() != 1) {
+        error = "invalid-envelope";
+        return false;
+    }
+
+    requestId = document["requestId"].as<String>();
+    if (requestId.length() == 0 || requestId.length() > 64) {
+        error = "invalid-request-id";
+        return false;
+    }
+    for (size_t index = 0; index < requestId.length(); ++index) {
+        const char character = requestId[index];
+        if (!isalnum(static_cast<unsigned char>(character)) && character != '-') {
+            error = "invalid-request-id";
+            return false;
+        }
+    }
+
+    JsonObjectConst pinObject = document["pins"].as<JsonObjectConst>();
+    if (pinObject.isNull()) {
+        error = "missing-pins";
+        return false;
+    }
+
+    int pins[HardwarePinRoleCount];
+    std::fill_n(pins, HardwarePinRoleCount, -1);
+    for (JsonPairConst pair : pinObject) {
+        size_t role = HardwarePinRoleCount;
+        for (size_t candidate = 0; candidate < HardwarePinRoleCount; ++candidate) {
+            if (!strcmp(pair.key().c_str(), pinKeys[candidate])) {
+                role = candidate;
+                break;
+            }
+        }
+        if (role == HardwarePinRoleCount || !pair.value().is<int>()) {
+            error = "unsupported-pin-role";
+            return false;
+        }
+
+        const int pin = pair.value().as<int>();
+        const bool outputRole = role <= 3 || (role >= 8 && role <= 13) || role == 15 || role == 16;
+        const bool analogRole = role >= 17;
+        const bool capable = outputRole
+            ? isHardwareOutputPin(pin)
+            : analogRole
+                ? isHardwareAnalogPin(pin)
+                : isHardwareInputPin(pin);
+        if (!capable) {
+            error = "unsafe-pin";
+            return false;
+        }
+        for (size_t previous = 0; previous < HardwarePinRoleCount; ++previous) {
+            if (pins[previous] == pin) {
+                error = "duplicate-pin";
+                return false;
+            }
+        }
+        pins[role] = pin;
+    }
+
+    if (!hardwarePairIsComplete(pins, 0, 1) || !hardwarePairIsComplete(pins, 2, 3) ||
+        !hardwarePairIsComplete(pins, 4, 5) || !hardwarePairIsComplete(pins, 6, 7) ||
+        !hardwarePairIsComplete(pins, 13, 14) || !hardwarePairIsComplete(pins, 15, 16) ||
+        !hardwareGroupIsComplete(pins, 17, 5)) {
+        error = "incomplete-component";
+        return false;
+    }
+
+    HardwareConfiguration configuration{};
+    configuration.leftMotorPwm = pins[0];
+    configuration.leftMotorDirection = pins[1];
+    configuration.rightMotorPwm = pins[2];
+    configuration.rightMotorDirection = pins[3];
+    configuration.leftEncoderA = pins[4];
+    configuration.leftEncoderB = pins[5];
+    configuration.rightEncoderA = pins[6];
+    configuration.rightEncoderB = pins[7];
+    for (size_t index = 0; index < 5; ++index) {
+        configuration.servos[index] = pins[8 + index];
+        configuration.lineSensors[index] = pins[17 + index];
+    }
+    configuration.distanceTrigger = pins[13];
+    configuration.distanceEcho = pins[14];
+    configuration.colourSda = pins[15];
+    configuration.colourScl = pins[16];
+    applyHardwareConfiguration(configuration);
+    return true;
+}
+
 void receiveMqttMessage(String& topic, String& payload) {
     if (programRuntime == nullptr) return;
     logDiagnostic("debug", "mqtt", "Received %s (%u bytes).", topic.c_str(), static_cast<unsigned>(payload.length()));
     String error;
     bool accepted = false;
-    if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
+    if (topic == hardwareConfigurationTopic) {
+        String requestId;
+        accepted = decodeAndApplyHardwareConfiguration(payload, requestId, error);
+        publishHardwareConfigurationStatus(
+            requestId,
+            accepted ? "applied" : "rejected",
+            accepted ? nullptr : error.c_str());
+    } else if (topic == programDeployTopic) accepted = programRuntime->deploy(payload, error);
     else if (topic == programControlTopic) accepted = programRuntime->control(payload, error);
     if (accepted) {
         logDiagnostic("info", "mqtt", "Accepted %s.", topic.c_str());
     } else if (!error.isEmpty()) {
         logDiagnostic("warn", "mqtt", "Rejected %s: %s.", topic.c_str(), error.c_str());
-        queueProgramStatus("", "failed", error.c_str());
+        if (topic != hardwareConfigurationTopic) {
+            queueProgramStatus("", "failed", error.c_str());
+        }
     }
 }
 
@@ -677,6 +947,7 @@ void tryConnectMqtt() {
         mqttClient.publish(statusTopic, "online", true, 1);
         mqttClient.subscribe(programDeployTopic, 1);
         mqttClient.subscribe(programControlTopic, 1);
+        mqttClient.subscribe(hardwareConfigurationTopic, 1);
         publishColor(true);
         publishSyntheticSensorSnapshot(true);
         logDiagnostic("info", "mqtt", "Connected to the embedded MQTT broker.");
@@ -825,6 +1096,8 @@ void setup() {
     snprintf(programDeployTopic, sizeof(programDeployTopic), "robobooth/v1/devices/%s/program/deploy", deviceId);
     snprintf(programControlTopic, sizeof(programControlTopic), "robobooth/v1/devices/%s/program/control", deviceId);
     snprintf(programStatusTopic, sizeof(programStatusTopic), "robobooth/v1/devices/%s/program/status", deviceId);
+    snprintf(hardwareConfigurationTopic, sizeof(hardwareConfigurationTopic), "robobooth/v1/devices/%s/hardware/config", deviceId);
+    snprintf(hardwareConfigurationStatusTopic, sizeof(hardwareConfigurationStatusTopic), "robobooth/v1/devices/%s/hardware/status", deviceId);
     programRuntime = new ProgramRuntime(
         hardwareConfiguration,
         [](const char* requestId, const char* state, const char* error) { queueProgramStatus(requestId, state, error); },

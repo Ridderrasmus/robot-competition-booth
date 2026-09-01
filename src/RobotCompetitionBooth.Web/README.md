@@ -17,6 +17,10 @@ Interactive Blazor Server application for discovering and managing the robot fro
 - Lets an operator select a discovered BLE device, enter its passkey, pair it, validate the firmware's authenticated GATT service, and provision the saved network over encrypted BLE.
 - Provisions the selected Wi-Fi network and local MQTT endpoint over the encrypted BLE connection.
 - Waits for the Robobooth to connect to both Wi-Fi and MQTT before reporting the combined setup as connected.
+- Provides an admin-only robot hardware page that selects a known robot, adds preset motor/encoder/servo/sensor
+  components, validates every required GPIO, and stores one configuration per robot in server Local AppData.
+- Sends saved hardware configurations on each robot's authenticated MQTT topic, waits for firmware acknowledgement,
+  and automatically reapplies the server-owned configuration whenever that robot reconnects.
 - Provides a `/devices` page listing the currently connected robots and a button to open each programming workspace.
 - Lets desktop users collapse the navigation sidebar to icon-only mode, with text tooltips for every navigation icon.
 - Opens a Blockly editor from each live device and saves multiple named workspaces for that device on the server.
@@ -128,6 +132,8 @@ The connection is accepted only after the server finds the firmware's custom ser
 - Devices authenticate with a generated token that is never shown in the UI or application logs. It is sent only during encrypted, authenticated BLE provisioning and kept in ESP32 RAM.
 - The advertised broker address is selected from the host's active LAN IPv4 adapters. If the wrong adapter is selected, set `EmbeddedMqtt:AdvertisedHost` in configuration to the computer's Wi-Fi IPv4 address.
 - The MQTT connection is authenticated but is not TLS-encrypted. Use it only on a trusted booth LAN; the web app itself should likewise not be exposed to an untrusted network.
+- Hardware configurations use retained `hardware/config` commands scoped to the authenticated device ID. Firmware
+  replies on `hardware/status`; a disconnected robot receives its saved configuration after reconnecting.
 - Allow inbound TCP port `1883` through Windows Firewall for the private network used by the booth.
 
 To bind an explicit local address:
@@ -165,6 +171,10 @@ dotnet run --project src/RobotCompetitionBooth.Web --urls http://127.0.0.1:5127
 - `Components/Pages/Wifi.razor` contains the Wi-Fi setup page.
 - `Services/EmbeddedMqttBrokerService.cs` hosts and authenticates the in-process MQTT broker.
 - `Services/RobotDeviceStateService.cs` owns the current colour and connection state for each MQTT device.
+- `Models/RobotHardwareConfiguration.cs` defines the preset components, safe ESP32-S3 GPIO capabilities, and validation rules.
+- `Services/RobotHardwareConfigurationStore.cs` atomically stores validated configurations per robot in Local AppData.
+- `Services/RobotHardwareConfigurationDeploymentService.cs` saves and applies configurations through authenticated MQTT.
+- `Components/Pages/AdminDevice.razor` selects a known robot; `AdminDevicePins.razor` edits its preset component mappings.
 - `Models/RobotSensorSnapshot.cs` mirrors the validated MQTT sensor-snapshot contract used by the programming UI.
 - `Components/Pages/Devices.razor` renders the live device colour page.
 - `Components/Pages/DeviceProgram.razor` hosts the Blockly editor for one device.

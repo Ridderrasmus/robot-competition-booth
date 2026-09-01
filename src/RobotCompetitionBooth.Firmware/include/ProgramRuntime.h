@@ -3,12 +3,15 @@
 #include <ArduinoJson.h>
 #include <functional>
 
-// Pin/channel assignment intentionally lives outside the interpreter. A future BLE
-// configurator can populate this table; -1 means the device is not assembled/enabled.
+// Pin assignment is supplied by the booth server over authenticated MQTT.
+// -1 means the corresponding component is not assembled/enabled.
 struct HardwareConfiguration {
     int leftMotorPwm = -1, leftMotorDirection = -1, rightMotorPwm = -1, rightMotorDirection = -1;
+    int leftEncoderA = -1, leftEncoderB = -1, rightEncoderA = -1, rightEncoderB = -1;
     int servos[5] = {-1, -1, -1, -1, -1};
-    int distanceChannel = -1, colourChannel = -1, lineChannel = -1;
+    int distanceTrigger = -1, distanceEcho = -1;
+    int colourSda = -1, colourScl = -1;
+    int lineSensors[5] = {-1, -1, -1, -1, -1};
 };
 
 class ProgramRuntime {

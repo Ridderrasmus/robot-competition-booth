@@ -1,26 +1,119 @@
 @page "/admin/device"
-@inject NavigationManager Navigation
+@implements IDisposable
+@inject RobotDeviceStateService DeviceState
+@inject RobotHardwareConfigurationStore HardwareConfigurations
 
-<PageTitle>Device setup</PageTitle>
+<PageTitle>Robot hardware setup</PageTitle>
 
 <AdminGate>
-    <div class="admin-page">
+    <div class="robot-hardware-list-page">
         <a class="d-inline-block mb-3" href="/admin">← Back to admin</a>
 
         <header class="mb-4">
-            <h1>Device setup</h1>
-            <p class="text-secondary mb-0">Choose a device to define its pin mappings and verify the configuration.</p>
+            <span class="admin-eyebrow">Per-robot configuration</span>
+            <h1>Robot hardware setup</h1>
+            <p class="text-secondary mb-0">
+                Select a known robot. Its component and pin mappings are stored on this server and sent only to that robot.
+            </p>
         </header>
 
-        <div class="admin-settings-grid">
-            <a class="admin-setting-card" href="/admin/device/esp32-s3-n16r8">
-                <span class="admin-setting-icon device-icon" aria-hidden="true"></span>
-                <span>
-                    <strong>ESP32-S3-N16R8</strong>
-                    <span>Configure what is connected to which GPIO pins for this board.</span>
-                </span>
-                <span class="admin-setting-arrow" aria-hidden="true">→</span>
-            </a>
-        </div>
+        @if (loading)
+        {
+            <div class="d-flex align-items-center gap-2 text-secondary">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                Loading robots…
+            </div>
+        }
+        else if (robots.Count == 0)
+        {
+            <section class="hardware-empty-state">
+                <strong>No known robots</strong>
+                <span>Connect a robot to the booth once, then return here to configure its hardware.</span>
+                <a class="btn btn-primary mt-3" href="/admin/bluetooth">Connect a robot</a>
+            </section>
+        }
+        else
+        {
+            <div class="hardware-robot-list">
+                @foreach (var robot in robots)
+                {
+                    <article class="hardware-robot-row" @key="robot.DeviceId">
+                        <span class="hardware-robot-state @(robot.IsOnline ? "online" : null)" aria-hidden="true"></span>
+                        <span class="hardware-robot-identity">
+                            <strong>@robot.Name</strong>
+                            <code>@robot.DeviceId</code>
+                        </span>
+                        <span class="hardware-component-count">
+                            @robot.ComponentCount component@(robot.ComponentCount == 1 ? string.Empty : "s")
+                        </span>
+                        <a class="btn btn-outline-primary" href="@GetConfigurationUrl(robot.DeviceId)">Configure</a>
+                    </article>
+                }
+            </div>
+        }
     </div>
 </AdminGate>
+
+@code {
+    private IReadOnlyList<RobotHardwareListItem> robots = [];
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        DeviceState.StateChanged += HandleStateChanged;
+        await RefreshAsync();
+    }
+
+    private void HandleStateChanged(object? sender, EventArgs args) =>
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+
+    private async Task RefreshAsync()
+    {
+        var knownDevices = DeviceState.GetDevices().ToDictionary(device => device.DeviceId, StringComparer.Ordinal);
+        var deviceIds = new HashSet<string>(await HardwareConfigurations.ListDeviceIdsAsync(), StringComparer.Ordinal);
+        deviceIds.UnionWith(knownDevices.Keys);
+
+        var items = new List<RobotHardwareListItem>();
+        foreach (var deviceId in deviceIds.OrderBy(value => value, StringComparer.Ordinal))
+        {
+            RobotHardwareConfiguration? configuration = null;
+            try
+            {
+                configuration = await HardwareConfigurations.LoadAsync(deviceId);
+            }
+            catch (InvalidDataException)
+            {
+                // Keep the robot visible so an administrator can replace a damaged file.
+            }
+
+            knownDevices.TryGetValue(deviceId, out var device);
+            items.Add(new(
+                deviceId,
+                device?.DeviceName ?? deviceId,
+                device?.IsOnline is true,
+                configuration?.GetConfiguredComponents().Count ?? 0));
+        }
+
+        robots = items
+            .OrderByDescending(robot => robot.IsOnline)
+            .ThenBy(robot => robot.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(robot => robot.DeviceId, StringComparer.Ordinal)
+            .ToArray();
+        loading = false;
+    }
+
+    private static string GetConfigurationUrl(string deviceId) =>
+        $"/admin/device/{Uri.EscapeDataString(deviceId)}/pins";
+
+    public void Dispose() => DeviceState.StateChanged -= HandleStateChanged;
+
+    private sealed record RobotHardwareListItem(
+        string DeviceId,
+        string Name,
+        bool IsOnline,
+        int ComponentCount);
+}

@@ -1,198 +1,258 @@
-@page "/admin/device/esp32-s3-n16r8"
-@inject IJSRuntime JS
+@page "/admin/device/{DeviceId}/pins"
+@implements IDisposable
+@inject RobotDeviceStateService DeviceState
+@inject RobotHardwareConfigurationStore HardwareConfigurations
+@inject RobotHardwareConfigurationDeploymentService Deployment
 
-<PageTitle>ESP32-S3-N16R8 pins</PageTitle>
+<PageTitle>Robot pin mappings</PageTitle>
 
 <AdminGate>
-    <div class="device-pins-page">
-        <a class="d-inline-block mb-3" href="/admin/device">← Back to devices</a>
+    <div class="robot-hardware-page">
+        <a class="d-inline-block mb-3" href="/admin/device">← Back to robots</a>
 
-        <header class="mb-3">
-            <h1>ESP32-S3-N16R8 — Pin mappings</h1>
-            <p class="text-secondary mb-0">Define what is connected to each device pin. Mappings are saved in browser local storage for this machine.</p>
-        </header>
-
-        <section class="card mb-3">
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label" for="new-pin">Pin</label>
-                    <input id="new-pin" class="form-control mb-2" @bind="newPin" placeholder="e.g. GPIO21 or IO21" />
-                    <label class="form-label" for="new-fn">Function / description</label>
-                    <input id="new-fn" class="form-control mb-2" @bind="newFunction" placeholder="e.g. Stepper motor step" />
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" @onclick="AddMapping">Add mapping</button>
-                        <button class="btn btn-outline-secondary" @onclick="LoadAsync">Load</button>
-                        <button class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
-                    </div>
-                </div>
-
-                <div>
-                    <h2 class="h6">Mappings</h2>
-                    @if (mappings.Count == 0)
-                    {
-                        <p class="text-secondary">No mappings defined yet.</p>
-                    }
-                    else
-                    {
-                        <ul class="list-group">
-                            @foreach (var mapping in mappings.Select((m, i) => (m, i)))
-                            {
-                                <li class="list-group-item d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <strong>@mapping.m.Pin</strong>
-                                        <div class="text-secondary small">@mapping.m.Function</div>
-                                    </div>
-                                    <div class="btn-group">
-                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(mapping.i)">Edit</button>
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(mapping.i)">Remove</button>
-                                    </div>
-                                </li>
-                            }
-                        </ul>
-                    }
-                </div>
-
-                <div class="mt-3 d-flex gap-2">
-                    <button class="btn btn-success" @onclick="SaveAsync">Save to local storage</button>
-                    <span class="text-success align-self-center" hidden="@(!saved)">Saved</span>
-                    <span class="text-danger align-self-center" hidden="@(saved)">Not saved</span>
-                </div>
-            </div>
-        </section>
-
-        @if (editingIndex is not null)
+        @if (!validDeviceId)
         {
-            <section class="card mb-3">
-                <div class="card-body">
-                    <h2 class="h6">Edit mapping</h2>
-                    <label class="form-label">Pin</label>
-                    <input class="form-control mb-2" @bind="editPin" />
-                    <label class="form-label">Function</label>
-                    <input class="form-control mb-2" @bind="editFunction" />
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" @onclick="SaveEdit">Save</button>
-                        <button class="btn btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
-                    </div>
+            <div class="alert alert-danger">The robot ID in this address is invalid.</div>
+        }
+        else if (loading)
+        {
+            <div class="d-flex align-items-center gap-2 text-secondary">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                Loading configuration…
+            </div>
+        }
+        else
+        {
+            <header class="hardware-page-heading">
+                <div>
+                    <span class="admin-eyebrow">ESP32-S3-N16R8 hardware</span>
+                    <h1 class="mb-1">@(robot?.DeviceName ?? DeviceId)</h1>
+                    <code>@DeviceId</code>
+                </div>
+                <span class="badge @(robot?.IsOnline is true ? "text-bg-success" : "text-bg-secondary")">
+                    @(robot?.IsOnline is true ? "Connected" : "Offline")
+                </span>
+            </header>
+
+            <section class="hardware-add-card">
+                <div>
+                    <h2>Add a component</h2>
+                    <p>Select a known component and the page will add every pin that component requires.</p>
+                </div>
+                <div class="hardware-add-controls">
+                    <select class="form-select" @bind="selectedComponentKey" disabled="@busy">
+                        <option value="">Choose a component…</option>
+                        @foreach (var component in AvailableComponents)
+                        {
+                            <option value="@component.Key">@component.Label</option>
+                        }
+                    </select>
+                    <button class="btn btn-primary" type="button" @onclick="AddComponent" disabled="@(busy || string.IsNullOrEmpty(selectedComponentKey))">
+                        Add component
+                    </button>
                 </div>
             </section>
+
+            @if (ConfiguredComponents.Count == 0)
+            {
+                <section class="hardware-empty-state mt-3">
+                    <strong>No components mapped</strong>
+                    <span>Add only the devices assembled on this robot. Everything else remains disabled.</span>
+                </section>
+            }
+            else
+            {
+                <div class="hardware-component-grid">
+                    @foreach (var component in ConfiguredComponents)
+                    {
+                        <fieldset class="hardware-component-card" disabled="@busy" @key="component.Key">
+                            <div class="hardware-component-heading">
+                                <div>
+                                    <legend>@component.Label</legend>
+                                    <p>@component.Description</p>
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => RemoveComponent(component)">Remove</button>
+                            </div>
+                            <div class="hardware-pin-grid">
+                                @foreach (var pinDefinition in component.Pins)
+                                {
+                                    <div>
+                                        <label class="form-label" for="pin-@pinDefinition.Key">@pinDefinition.Label</label>
+                                        <select id="pin-@pinDefinition.Key"
+                                                class="form-select"
+                                                value="@FormatPin(configuration.GetPin(pinDefinition.Key))"
+                                                @onchange="args => ChangePin(pinDefinition.Key, args)">
+                                            <option value="">Choose GPIO…</option>
+                                            @foreach (var pin in RobotHardwareConfiguration.GetAvailablePins(pinDefinition.Capability))
+                                            {
+                                                <option value="@pin" disabled="@IsUsedByAnotherRole(pinDefinition.Key, pin)">GPIO @pin</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                            </div>
+                        </fieldset>
+                    }
+                </div>
+            }
+
+            <p class="hardware-reserved-note">
+                GPIO 48 is reserved for the robot status light. Flash/PSRAM, USB, and unsafe output pins are not offered.
+            </p>
+
+            @if (ValidationError is { } validationError)
+            {
+                <div class="alert alert-warning" role="status">@validationError</div>
+            }
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <div class="alert @(messageIsError ? "alert-danger" : "alert-success")" role="status">@message</div>
+            }
+
+            <div class="hardware-actions">
+                <button class="btn btn-success" type="button" @onclick="SaveAndApplyAsync" disabled="@(busy || ValidationError is not null)">
+                    @if (busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                    }
+                    Save and apply to robot
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="ReloadAsync" disabled="@busy">Reload saved configuration</button>
+            </div>
         }
     </div>
 </AdminGate>
 
 @code {
-    private const string StorageKey = "device-pins-ESP32-S3-N16R8";
+    [Parameter]
+    public string DeviceId { get; set; } = string.Empty;
 
-    private List<PinMapping> mappings = new();
+    private RobotHardwareConfiguration configuration = RobotHardwareConfiguration.Empty("robotbooth-invalid");
+    private RobotDeviceState? robot;
+    private string selectedComponentKey = string.Empty;
+    private string? message;
+    private bool messageIsError;
+    private bool loading = true;
+    private bool busy;
+    private bool validDeviceId;
+    private string? initializedDeviceId;
 
-    private string newPin = string.Empty;
-    private string newFunction = string.Empty;
+    private IReadOnlyList<RobotHardwareComponentDefinition> ConfiguredComponents => configuration.GetConfiguredComponents();
+    private IEnumerable<RobotHardwareComponentDefinition> AvailableComponents =>
+        RobotHardwareConfiguration.ComponentDefinitions.Where(component => !configuration.HasComponent(component));
+    private string? ValidationError => configuration.Validate();
 
-    private int? editingIndex;
-    private string editPin = string.Empty;
-    private string editFunction = string.Empty;
-
-    private bool saved;
-
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        await LoadAsync();
-    }
-
-    private async Task LoadAsync()
-    {
-        try
-        {
-            var json = await JS.InvokeAsync<string>("localStorage.getItem", StorageKey);
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                mappings = System.Text.Json.JsonSerializer.Deserialize<List<PinMapping>>(json) ?? new List<PinMapping>();
-                saved = true;
-            }
-            else
-            {
-                mappings = new List<PinMapping>();
-                saved = false;
-            }
-        }
-        catch
-        {
-            mappings = new List<PinMapping>();
-            saved = false;
-        }
-    }
-
-    private void AddMapping()
-    {
-        if (string.IsNullOrWhiteSpace(newPin))
+        if (string.Equals(initializedDeviceId, DeviceId, StringComparison.Ordinal))
         {
             return;
         }
 
-        mappings.Add(new PinMapping { Pin = newPin.Trim(), Function = newFunction?.Trim() ?? string.Empty });
-        newPin = string.Empty;
-        newFunction = string.Empty;
-        saved = false;
-    }
-
-    private void Remove(int index)
-    {
-        if (index >= 0 && index < mappings.Count)
-        {
-            mappings.RemoveAt(index);
-            saved = false;
-        }
-    }
-
-    private void Edit(int index)
-    {
-        if (index < 0 || index >= mappings.Count) return;
-        editingIndex = index;
-        editPin = mappings[index].Pin;
-        editFunction = mappings[index].Function;
-    }
-
-    private void SaveEdit()
-    {
-        if (editingIndex is null) return;
-        var i = editingIndex.Value;
-        mappings[i].Pin = editPin?.Trim() ?? string.Empty;
-        mappings[i].Function = editFunction?.Trim() ?? string.Empty;
-        editingIndex = null;
-        editPin = string.Empty;
-        editFunction = string.Empty;
-        saved = false;
-    }
-
-    private void CancelEdit()
-    {
-        editingIndex = null;
-        editPin = string.Empty;
-        editFunction = string.Empty;
-    }
-
-    private void Reset()
-    {
-        mappings.Clear();
-        saved = false;
-    }
-
-    private async Task SaveAsync()
-    {
+        initializedDeviceId = DeviceId;
+        DeviceState.StateChanged -= HandleDeviceStateChanged;
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(mappings);
-            await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, json);
-            saved = true;
+            DeviceProgramStore.ValidateDeviceId(DeviceId);
+            validDeviceId = true;
         }
-        catch
+        catch (ArgumentException)
         {
-            saved = false;
+            validDeviceId = false;
+            loading = false;
+            return;
+        }
+
+        DeviceState.StateChanged += HandleDeviceStateChanged;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        loading = true;
+        message = null;
+        messageIsError = false;
+        try
+        {
+            configuration = await HardwareConfigurations.LoadAsync(DeviceId) ?? RobotHardwareConfiguration.Empty(DeviceId);
+            robot = DeviceState.GetDevice(DeviceId);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException)
+        {
+            configuration = RobotHardwareConfiguration.Empty(DeviceId);
+            message = $"The saved configuration could not be loaded: {exception.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            loading = false;
         }
     }
 
-    private class PinMapping
+    private void AddComponent()
     {
-        public string Pin { get; set; } = string.Empty;
-        public string Function { get; set; } = string.Empty;
+        if (!RobotHardwareConfiguration.TryGetComponent(selectedComponentKey, out var component) ||
+            configuration.HasComponent(component))
+        {
+            return;
+        }
+
+        foreach (var pin in component.Pins)
+        {
+            configuration.Pins[pin.Key] = -1;
+        }
+        selectedComponentKey = string.Empty;
+        message = null;
     }
+
+    private void RemoveComponent(RobotHardwareComponentDefinition component)
+    {
+        foreach (var pin in component.Pins)
+        {
+            configuration.Pins.Remove(pin.Key);
+        }
+        message = null;
+    }
+
+    private void ChangePin(string key, ChangeEventArgs args)
+    {
+        configuration.Pins[key] = int.TryParse(args.Value?.ToString(), out var pin) ? pin : -1;
+        message = null;
+    }
+
+    private bool IsUsedByAnotherRole(string key, int pin) =>
+        configuration.Pins.Any(pair => pair.Key != key && pair.Value == pin);
+
+    private async Task SaveAndApplyAsync()
+    {
+        busy = true;
+        message = null;
+        messageIsError = false;
+        try
+        {
+            var result = await Deployment.SaveAndApplyAsync(configuration);
+            message = result.Message;
+            messageIsError = !result.Saved || (robot?.IsOnline is true && !result.Applied);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        {
+            message = exception.Message;
+            messageIsError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void HandleDeviceStateChanged(object? sender, EventArgs args) =>
+        _ = InvokeAsync(() =>
+        {
+            robot = DeviceState.GetDevice(DeviceId);
+            StateHasChanged();
+        });
+
+    private static string FormatPin(int? pin) => pin?.ToString() ?? string.Empty;
+
+    public void Dispose() => DeviceState.StateChanged -= HandleDeviceStateChanged;
 }
