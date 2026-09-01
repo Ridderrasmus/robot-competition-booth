@@ -1,0 +1,198 @@
+@page "/admin/device/esp32-s3-n16r8"
+@inject IJSRuntime JS
+
+<PageTitle>ESP32-S3-N16R8 pins</PageTitle>
+
+<AdminGate>
+    <div class="device-pins-page">
+        <a class="d-inline-block mb-3" href="/admin/device">← Back to devices</a>
+
+        <header class="mb-3">
+            <h1>ESP32-S3-N16R8 — Pin mappings</h1>
+            <p class="text-secondary mb-0">Define what is connected to each device pin. Mappings are saved in browser local storage for this machine.</p>
+        </header>
+
+        <section class="card mb-3">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label" for="new-pin">Pin</label>
+                    <input id="new-pin" class="form-control mb-2" @bind="newPin" placeholder="e.g. GPIO21 or IO21" />
+                    <label class="form-label" for="new-fn">Function / description</label>
+                    <input id="new-fn" class="form-control mb-2" @bind="newFunction" placeholder="e.g. Stepper motor step" />
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" @onclick="AddMapping">Add mapping</button>
+                        <button class="btn btn-outline-secondary" @onclick="LoadAsync">Load</button>
+                        <button class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h2 class="h6">Mappings</h2>
+                    @if (mappings.Count == 0)
+                    {
+                        <p class="text-secondary">No mappings defined yet.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group">
+                            @foreach (var mapping in mappings.Select((m, i) => (m, i)))
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@mapping.m.Pin</strong>
+                                        <div class="text-secondary small">@mapping.m.Function</div>
+                                    </div>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(mapping.i)">Edit</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(mapping.i)">Remove</button>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                <div class="mt-3 d-flex gap-2">
+                    <button class="btn btn-success" @onclick="SaveAsync">Save to local storage</button>
+                    <span class="text-success align-self-center" hidden="@(!saved)">Saved</span>
+                    <span class="text-danger align-self-center" hidden="@(saved)">Not saved</span>
+                </div>
+            </div>
+        </section>
+
+        @if (editingIndex is not null)
+        {
+            <section class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">Edit mapping</h2>
+                    <label class="form-label">Pin</label>
+                    <input class="form-control mb-2" @bind="editPin" />
+                    <label class="form-label">Function</label>
+                    <input class="form-control mb-2" @bind="editFunction" />
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" @onclick="SaveEdit">Save</button>
+                        <button class="btn btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+                    </div>
+                </div>
+            </section>
+        }
+    </div>
+</AdminGate>
+
+@code {
+    private const string StorageKey = "device-pins-ESP32-S3-N16R8";
+
+    private List<PinMapping> mappings = new();
+
+    private string newPin = string.Empty;
+    private string newFunction = string.Empty;
+
+    private int? editingIndex;
+    private string editPin = string.Empty;
+    private string editFunction = string.Empty;
+
+    private bool saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string>("localStorage.getItem", StorageKey);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                mappings = System.Text.Json.JsonSerializer.Deserialize<List<PinMapping>>(json) ?? new List<PinMapping>();
+                saved = true;
+            }
+            else
+            {
+                mappings = new List<PinMapping>();
+                saved = false;
+            }
+        }
+        catch
+        {
+            mappings = new List<PinMapping>();
+            saved = false;
+        }
+    }
+
+    private void AddMapping()
+    {
+        if (string.IsNullOrWhiteSpace(newPin))
+        {
+            return;
+        }
+
+        mappings.Add(new PinMapping { Pin = newPin.Trim(), Function = newFunction?.Trim() ?? string.Empty });
+        newPin = string.Empty;
+        newFunction = string.Empty;
+        saved = false;
+    }
+
+    private void Remove(int index)
+    {
+        if (index >= 0 && index < mappings.Count)
+        {
+            mappings.RemoveAt(index);
+            saved = false;
+        }
+    }
+
+    private void Edit(int index)
+    {
+        if (index < 0 || index >= mappings.Count) return;
+        editingIndex = index;
+        editPin = mappings[index].Pin;
+        editFunction = mappings[index].Function;
+    }
+
+    private void SaveEdit()
+    {
+        if (editingIndex is null) return;
+        var i = editingIndex.Value;
+        mappings[i].Pin = editPin?.Trim() ?? string.Empty;
+        mappings[i].Function = editFunction?.Trim() ?? string.Empty;
+        editingIndex = null;
+        editPin = string.Empty;
+        editFunction = string.Empty;
+        saved = false;
+    }
+
+    private void CancelEdit()
+    {
+        editingIndex = null;
+        editPin = string.Empty;
+        editFunction = string.Empty;
+    }
+
+    private void Reset()
+    {
+        mappings.Clear();
+        saved = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(mappings);
+            await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, json);
+            saved = true;
+        }
+        catch
+        {
+            saved = false;
+        }
+    }
+
+    private class PinMapping
+    {
+        public string Pin { get; set; } = string.Empty;
+        public string Function { get; set; } = string.Empty;
+    }
+}

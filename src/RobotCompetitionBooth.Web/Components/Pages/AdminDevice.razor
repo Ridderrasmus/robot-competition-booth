@@ -1,0 +1,26 @@
+@page "/admin/device"
+@inject NavigationManager Navigation
+
+<PageTitle>Device setup</PageTitle>
+
+<AdminGate>
+    <div class="admin-page">
+        <a class="d-inline-block mb-3" href="/admin">← Back to admin</a>
+
+        <header class="mb-4">
+            <h1>Device setup</h1>
+            <p class="text-secondary mb-0">Choose a device to define its pin mappings and verify the configuration.</p>
+        </header>
+
+        <div class="admin-settings-grid">
+            <a class="admin-setting-card" href="/admin/device/esp32-s3-n16r8">
+                <span class="admin-setting-icon device-icon" aria-hidden="true"></span>
+                <span>
+                    <strong>ESP32-S3-N16R8</strong>
+                    <span>Configure what is connected to which GPIO pins for this board.</span>
+                </span>
+                <span class="admin-setting-arrow" aria-hidden="true">→</span>
+            </a>
+        </div>
+    </div>
+</AdminGate>
